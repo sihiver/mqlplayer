@@ -57,14 +57,16 @@ dependencies {
     
     // ExoPlayer for IPTV streaming
     implementation("androidx.media3:media3-exoplayer:1.8.0")
-    implementation("androidx.media3:media3-exoplayer-hls:1.2.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.8.0")
     implementation("androidx.media3:media3-ui:1.8.0")
-    
-    // Try MediaParser alternative for MPEG-TS support
     implementation("androidx.media3:media3-extractor:1.8.0")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.8.0")
     
-    // LibVLC for problematic streams (fallback) - comment out for now
-    // implementation("org.videolan.android:libvlc-all:3.5.4")
+    // NextLib FFmpeg extension for MPEG-L2 audio codec support (like M3UAndroid)
+    implementation("com.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.1")
+    
+    // OkHttp DataSource for ExoPlayer network streaming
+    implementation("androidx.media3:media3-datasource-okhttp:1.8.0")
     
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")

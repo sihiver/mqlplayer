@@ -41,6 +41,11 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
         
         <activity
+            android:name=".PlayerActivityExo"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
+        
+        <activity
             android:name=".AddChannelActivity"
             android:exported="false"
             android:label="Add Channel" />

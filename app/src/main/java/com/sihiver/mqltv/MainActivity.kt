@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
                             try {
                                 android.util.Log.d("MainActivity", "Channel clicked: ${channel.name} (ID: ${channel.id}, URL: ${channel.url})")
                                 
-                                val intent = Intent(this@MainActivity, PlayerActivity::class.java)
+                                val intent = Intent(this@MainActivity, PlayerActivityExo::class.java)
                                 intent.putExtra("CHANNEL_ID", channel.id)
                                 
                                 android.util.Log.d("MainActivity", "Starting PlayerActivity with channel ID: ${channel.id}")

@@ -16,7 +16,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://get.videolan.org/android/maven2") }
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
