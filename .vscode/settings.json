@@ -1,0 +1,19 @@
+{
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "java.compile.nullAnalysis.mode": "automatic",
+    "files.exclude": {
+        "**/.gradle": true,
+        "**/build": true,
+        "**/.idea": false
+    },
+    "kotlin.languageServer.enabled": true,
+    "android-intellisense.workspaceRoot": "${workspaceFolder}",
+    "gradle.nestedProjects": true,
+    "files.associations": {
+        "*.gradle": "gradle",
+        "*.gradle.kts": "kotlin"
+    },
+    "emmet.includeLanguages": {
+        "xml": "html"
+    }
+}

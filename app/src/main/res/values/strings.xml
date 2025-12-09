@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">MQL TV</string>
+    <string name="channel_list_title">IPTV Channels</string>
+    <string name="loading">Loading…</string>
+    <string name="error_loading_stream">Error loading stream</string>
+    <string name="no_channels_available">No channels available</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="buffering">Buffering…</string>
+</resources>

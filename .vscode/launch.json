@@ -1,0 +1,64 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Build Debug APK",
+            "type": "shell",
+            "request": "launch",
+            "command": "./gradlew",
+            "args": ["assembleDebug"],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": ["$gradle-kotlin", "$gradle-java"]
+        },
+        {
+            "name": "Build Release APK",
+            "type": "shell",
+            "request": "launch",
+            "command": "./gradlew",
+            "args": ["assembleRelease"],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "name": "Install Debug APK",
+            "type": "shell",
+            "request": "launch",
+            "command": "./gradlew",
+            "args": ["installDebug"],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "name": "Clean Project",
+            "type": "shell",
+            "request": "launch",
+            "command": "./gradlew",
+            "args": ["clean"],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        }
+    ]
+}
