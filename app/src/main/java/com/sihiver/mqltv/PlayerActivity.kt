@@ -19,6 +19,8 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.datasource.DefaultDataSourceFactory
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.PlayerView
@@ -86,11 +88,16 @@ class PlayerActivity : ComponentActivity() {
             setEnableDecoderFallback(true)
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             
-            // Use a MediaCodecSelector that prefers software decoders for MPEG-TS
+            // Use a MediaCodecSelector that handles both video and audio codecs
             setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
                 // For MPEG-TS content, prefer software decoders
-                if (mimeType?.contains("video/avc") == true) {
-                    android.util.Log.d("PlayerActivity", "Selecting software decoder for AVC content")
+                when {
+                    mimeType?.contains("video/avc") == true -> {
+                        android.util.Log.d("PlayerActivity", "Selecting decoder for AVC video content")
+                    }
+                    mimeType?.contains("audio/") == true -> {
+                        android.util.Log.d("PlayerActivity", "Selecting decoder for audio: $mimeType")
+                    }
                 }
                 MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
             }
@@ -166,8 +173,73 @@ class PlayerActivity : ComponentActivity() {
                         )
                         .build()
                 )
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .setUsage(C.USAGE_MEDIA)
+                        .build(),
+                    true // Handle audio focus
+                )
                 .build().also { exoPlayer ->
                     playerView.player = exoPlayer
+                    
+                    // Add error listener
+                    exoPlayer.addListener(object : Player.Listener {
+                        override fun onPlayerError(error: PlaybackException) {
+                            android.util.Log.e("PlayerActivity", "Playback error: ${error.message}", error)
+                            if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) {
+                                android.util.Log.e("PlayerActivity", "Decoder initialization failed - codec may not be supported")
+                                runOnUiThread {
+                                    android.widget.Toast.makeText(
+                                        this@PlayerActivity,
+                                        "Audio/Video codec not supported on this device",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                    })
+                    
+                    // Log audio and video format info
+                    exoPlayer.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                        override fun onAudioEnabled(
+                            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                            counters: androidx.media3.exoplayer.DecoderCounters
+                        ) {
+                            android.util.Log.d("PlayerActivity", "Audio renderer enabled")
+                        }
+                        
+                        override fun onAudioDisabled(
+                            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                            counters: androidx.media3.exoplayer.DecoderCounters
+                        ) {
+                            android.util.Log.w("PlayerActivity", "Audio renderer disabled - no audio will play")
+                        }
+                        
+                        override fun onAudioDecoderInitialized(
+                            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                            decoderName: String,
+                            initializedTimestampMs: Long,
+                            initializationDurationMs: Long
+                        ) {
+                            android.util.Log.d("PlayerActivity", "Audio decoder initialized: $decoderName")
+                        }
+                        
+                        override fun onAudioInputFormatChanged(
+                            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                            format: androidx.media3.common.Format,
+                            decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?
+                        ) {
+                            android.util.Log.d("PlayerActivity", "Audio format: ${format.sampleMimeType}, channels: ${format.channelCount}, sample rate: ${format.sampleRate}")
+                        }
+                        
+                        override fun onAudioDecoderReleased(
+                            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                            decoderName: String
+                        ) {
+                            android.util.Log.d("PlayerActivity", "Audio decoder released: $decoderName")
+                        }
+                    })
                     
                     // For HDMI capture and MPEG-TS streams, use appropriate media source
                     if (channel.url.contains(".m3u8")) {
