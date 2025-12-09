@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.datasource.DefaultDataSourceFactory
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.PlayerView
@@ -97,6 +98,11 @@ class PlayerActivity : ComponentActivity() {
                     }
                     mimeType?.contains("audio/") == true -> {
                         android.util.Log.d("PlayerActivity", "Selecting decoder for audio: $mimeType")
+                        // Skip MPEG-L2 audio codec (not supported by most Android devices)
+                        if (mimeType.contains("mpeg-L2", ignoreCase = true) || mimeType.contains("audio/mpeg")) {
+                            android.util.Log.w("PlayerActivity", "MPEG-L2 audio codec not supported, video will play without audio")
+                            return@setMediaCodecSelector emptyList() // Return empty list to skip this track
+                        }
                     }
                 }
                 MediaCodecSelector.DEFAULT.getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
@@ -188,12 +194,14 @@ class PlayerActivity : ComponentActivity() {
                         override fun onPlayerError(error: PlaybackException) {
                             android.util.Log.e("PlayerActivity", "Playback error: ${error.message}", error)
                             if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) {
-                                android.util.Log.e("PlayerActivity", "Decoder initialization failed - codec may not be supported")
+                                android.util.Log.w("PlayerActivity", "Decoder initialization failed - likely unsupported audio codec (MPEG-L2)")
+                                // Don't show toast for audio codec issues - video will continue
+                            } else {
                                 runOnUiThread {
                                     android.widget.Toast.makeText(
                                         this@PlayerActivity,
-                                        "Audio/Video codec not supported on this device",
-                                        android.widget.Toast.LENGTH_LONG
+                                        "Playback error: ${error.message}",
+                                        android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                 }
                             }
