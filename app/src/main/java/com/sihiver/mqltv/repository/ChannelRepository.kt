@@ -202,4 +202,87 @@ object ChannelRepository {
         saveChannels(context)
         android.util.Log.d("ChannelRepository", "All channels cleared including samples")
     }
+    
+    // Recently Watched functionality
+    private val recentlyWatchedIds = mutableListOf<Int>()
+    
+    fun addToRecentlyWatched(context: Context, channelId: Int) {
+        // Remove if already exists to move to front
+        recentlyWatchedIds.remove(channelId)
+        // Add to front
+        recentlyWatchedIds.add(0, channelId)
+        // Keep only last 10
+        if (recentlyWatchedIds.size > 10) {
+            recentlyWatchedIds.removeAt(recentlyWatchedIds.size - 1)
+        }
+        saveRecentlyWatched(context)
+        android.util.Log.d("ChannelRepository", "Added channel $channelId to recently watched")
+    }
+    
+    fun getRecentlyWatched(): List<Channel> {
+        val allChannels = getAllChannels()
+        return recentlyWatchedIds.mapNotNull { id ->
+            allChannels.find { it.id == id }
+        }
+    }
+    
+    private fun saveRecentlyWatched(context: Context) {
+        val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        editor.putString("recently_watched", recentlyWatchedIds.joinToString(","))
+        editor.apply()
+    }
+    
+    fun loadRecentlyWatched(context: Context) {
+        val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
+        val recentString = prefs.getString("recently_watched", "") ?: ""
+        recentlyWatchedIds.clear()
+        if (recentString.isNotEmpty()) {
+            recentlyWatchedIds.addAll(
+                recentString.split(",").mapNotNull { it.toIntOrNull() }
+            )
+        }
+    }
+    
+    // Favorites functionality
+    private val favoriteIds = mutableSetOf<Int>()
+    
+    fun toggleFavorite(context: Context, channelId: Int) {
+        if (favoriteIds.contains(channelId)) {
+            favoriteIds.remove(channelId)
+        } else {
+            favoriteIds.add(channelId)
+        }
+        saveFavorites(context)
+        android.util.Log.d("ChannelRepository", "Toggled favorite for channel $channelId")
+    }
+    
+    fun isFavorite(channelId: Int): Boolean {
+        return favoriteIds.contains(channelId)
+    }
+    
+    fun getFavorites(): List<Channel> {
+        val allChannels = getAllChannels()
+        return favoriteIds.mapNotNull { id ->
+            allChannels.find { it.id == id }
+        }.sortedBy { it.name }
+    }
+    
+    private fun saveFavorites(context: Context) {
+        val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        editor.putString("favorites", favoriteIds.joinToString(","))
+        editor.apply()
+    }
+    
+    fun loadFavorites(context: Context) {
+        val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
+        val favString = prefs.getString("favorites", "") ?: ""
+        favoriteIds.clear()
+        if (favString.isNotEmpty()) {
+            favoriteIds.addAll(
+                favString.split(",").mapNotNull { it.toIntOrNull() }
+            )
+        }
+    }
 }

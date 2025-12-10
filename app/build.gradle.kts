@@ -55,18 +55,18 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.2.0")
     implementation("androidx.compose.material:material-icons-extended:1.6.0")
     
-    // ExoPlayer for IPTV streaming
-    implementation("androidx.media3:media3-exoplayer:1.8.0")
-    implementation("androidx.media3:media3-exoplayer-hls:1.8.0")
-    implementation("androidx.media3:media3-ui:1.8.0")
-    implementation("androidx.media3:media3-extractor:1.8.0")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.8.0")
+    // ExoPlayer for IPTV streaming (1.3.1 compatible with NextLib 0.7.1)
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.3.1")
+    implementation("androidx.media3:media3-ui:1.3.1")
+    implementation("androidx.media3:media3-extractor:1.3.1")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.3.1")
     
     // NextLib FFmpeg extension for MPEG-L2 audio codec support (like M3UAndroid)
     implementation("com.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.1")
     
     // OkHttp DataSource for ExoPlayer network streaming
-    implementation("androidx.media3:media3-datasource-okhttp:1.8.0")
+    implementation("androidx.media3:media3-datasource-okhttp:1.3.1")
     
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")

@@ -130,6 +130,9 @@ class MainActivity : ComponentActivity() {
                             0 -> LiveChannelsScreen(
                                 onChannelClick = { channel ->
                                     try {
+                                        // Add to recently watched before playing
+                                        ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
+                                        
                                         val intent = Intent(this@MainActivity, PlayerActivityExo::class.java)
                                         intent.putExtra("CHANNEL_ID", channel.id)
                                         startActivity(intent)
@@ -231,6 +234,8 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     val context = LocalContext.current
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
     var refreshKey by remember { mutableStateOf(0) }
+    var showAllCategory by remember { mutableStateOf<String?>(null) }
+    var showAllRecent by remember { mutableStateOf(false) }
     
     // Listen to lifecycle events
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -249,11 +254,47 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     // Refresh channels
     LaunchedEffect(refreshKey) {
         ChannelRepository.loadChannels(context)
+        ChannelRepository.loadRecentlyWatched(context)
+        ChannelRepository.loadFavorites(context)
         channels = ChannelRepository.getAllChannels()
     }
     
     val categories = remember(channels) {
         ChannelRepository.getAllCategories()
+    }
+    
+    val favorites = remember(refreshKey) {
+        ChannelRepository.getFavorites()
+    }
+    
+    val recentlyWatched = remember(refreshKey) {
+        ChannelRepository.getRecentlyWatched()
+    }
+    
+    // Show full list when "See all" is clicked
+    if (showAllRecent) {
+        FullChannelListScreen(
+            title = "Recently Watched",
+            channels = recentlyWatched,
+            onChannelClick = onChannelClick,
+            onBack = { showAllRecent = false }
+        )
+        return
+    }
+    
+    showAllCategory?.let { category ->
+        val categoryChannels = if (category == "Favorites") {
+            ChannelRepository.getFavorites()
+        } else {
+            ChannelRepository.getChannelsByCategory(category)
+        }
+        FullChannelListScreen(
+            title = category,
+            channels = categoryChannels,
+            onChannelClick = onChannelClick,
+            onBack = { showAllCategory = null }
+        )
+        return
     }
     
     LazyColumn(
@@ -296,9 +337,56 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
             }
         }
         
+        // Favorites Section
+        item {
+            if (favorites.isNotEmpty()) {
+                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Material3Text(
+                            text = "Favorites",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Material3Text(
+                            text = "See all",
+                            fontSize = 14.sp,
+                            color = Color(0xFF2196F3),
+                            modifier = Modifier.clickable {
+                                showAllCategory = "Favorites"
+                            }
+                        )
+                    }
+                    
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(favorites) { channel ->
+                            ChannelCardCompact(
+                                channel = channel,
+                                onClick = onChannelClick,
+                                onFavoriteClick = { 
+                                    ChannelRepository.toggleFavorite(context, channel.id)
+                                    refreshKey++
+                                },
+                                isFavorite = true
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
         // Recently Watched Section
-        if (channels.isNotEmpty()) {
-            item {
+        item {
+            if (recentlyWatched.isNotEmpty()) {
                 Column(modifier = Modifier.padding(vertical = 16.dp)) {
                     Row(
                         modifier = Modifier
@@ -316,7 +404,10 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                         Material3Text(
                             text = "See all",
                             fontSize = 14.sp,
-                            color = Color(0xFF2196F3)
+                            color = Color(0xFF2196F3),
+                            modifier = Modifier.clickable {
+                                showAllRecent = true
+                            }
                         )
                     }
                     
@@ -324,8 +415,16 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(channels.take(5)) { channel ->
-                            ChannelCardCompact(channel, onChannelClick)
+                        items(recentlyWatched) { channel ->
+                            ChannelCardCompact(
+                                channel = channel,
+                                onClick = onChannelClick,
+                                onFavoriteClick = { 
+                                    ChannelRepository.toggleFavorite(context, channel.id)
+                                    refreshKey++
+                                },
+                                isFavorite = ChannelRepository.isFavorite(channel.id)
+                            )
                         }
                     }
                 }
@@ -333,39 +432,48 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
         }
         
         // Category Sections
-        categories.forEach { category ->
-            item {
-                val categoryChannels = ChannelRepository.getChannelsByCategory(category)
-                
-                if (categoryChannels.isNotEmpty()) {
-                    Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Material3Text(
-                                text = category,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Material3Text(
-                                text = "See all",
-                                fontSize = 14.sp,
-                                color = Color(0xFF2196F3)
-                            )
-                        }
-                        
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(categoryChannels) { channel ->
-                                ChannelCardCompact(channel, onChannelClick)
+        items(categories) { category ->
+            val categoryChannels = ChannelRepository.getChannelsByCategory(category)
+            
+            if (categoryChannels.isNotEmpty()) {
+                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Material3Text(
+                            text = category,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Material3Text(
+                            text = "See all",
+                            fontSize = 14.sp,
+                            color = Color(0xFF2196F3),
+                            modifier = Modifier.clickable {
+                                showAllCategory = category
                             }
+                        )
+                    }
+                    
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(categoryChannels) { channel ->
+                            ChannelCardCompact(
+                                channel = channel,
+                                onClick = onChannelClick,
+                                onFavoriteClick = { 
+                                    ChannelRepository.toggleFavorite(context, channel.id)
+                                    refreshKey++
+                                },
+                                isFavorite = ChannelRepository.isFavorite(channel.id)
+                            )
                         }
                     }
                 }
@@ -375,7 +483,140 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
 }
 
 @Composable
-fun ChannelCardCompact(channel: Channel, onClick: (Channel) -> Unit) {
+fun FullChannelListScreen(
+    title: String,
+    channels: List<Channel>,
+    onChannelClick: (Channel) -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF000000))
+            .statusBarsPadding()
+    ) {
+        // Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Material3Text(
+                text = "‹",
+                fontSize = 32.sp,
+                color = Color.White,
+                modifier = Modifier
+                    .clickable { onBack() }
+                    .padding(end = 16.dp)
+            )
+            Column {
+                Material3Text(
+                    text = title,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Material3Text(
+                    text = "${channels.size} channels",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+            }
+        }
+        
+        // Grid of channels
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(channels) { channel ->
+                ChannelListItem(channel, onChannelClick)
+            }
+        }
+    }
+}
+
+@Composable
+fun ChannelListItem(channel: Channel, onClick: (Channel) -> Unit) {
+    Material3Card(
+        onClick = { onClick(channel) },
+        modifier = Modifier.fillMaxWidth(),
+        colors = Material3CardDefaults.cardColors(
+            containerColor = Color(0xFF1E1E1E)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Logo or icon
+            if (channel.logo.isNotEmpty()) {
+                AsyncImage(
+                    model = channel.logo,
+                    contentDescription = channel.name,
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF1565C0)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            // Channel info
+            Column(modifier = Modifier.weight(1f)) {
+                Material3Text(
+                    text = channel.name,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                if (channel.category.isNotEmpty()) {
+                    Material3Text(
+                        text = channel.category,
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+            
+            // Arrow
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = "Play",
+                tint = Color(0xFF2196F3),
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun ChannelCardCompact(
+    channel: Channel,
+    onClick: (Channel) -> Unit,
+    onFavoriteClick: () -> Unit = {},
+    isFavorite: Boolean = false
+) {
     Material3Card(
         onClick = { onClick(channel) },
         modifier = Modifier
@@ -413,15 +654,16 @@ fun ChannelCardCompact(channel: Channel, onClick: (Channel) -> Unit) {
                 }
             }
             
-            // Favorite heart icon (top-left)
+            // Favorite heart icon (top-left) - clickable
             Icon(
                 imageVector = Icons.Default.Favorite,
                 contentDescription = "Favorite",
-                tint = Color.White,
+                tint = if (isFavorite) Color(0xFFE50914) else Color.White.copy(alpha = 0.7f),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(8.dp)
                     .size(20.dp)
+                    .clickable { onFavoriteClick() }
             )
             
             // Channel name overlay (bottom)

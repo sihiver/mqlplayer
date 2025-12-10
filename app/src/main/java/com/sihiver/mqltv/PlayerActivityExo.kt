@@ -170,7 +170,7 @@ class PlayerActivityExo : ComponentActivity() {
             // Create NextLib FFmpeg renderers factory for MPEG-L2 support
             val renderersFactory = NextRenderersFactory(this).apply {
                 setEnableDecoderFallback(true)
-                setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+                setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             }
             
             // Create media source factory
@@ -200,13 +200,63 @@ class PlayerActivityExo : ComponentActivity() {
                         }
                         
                         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                            android.util.Log.e("PlayerActivityExo", "Player error: ${error.message}")
+                            android.util.Log.e("PlayerActivityExo", "Player error: ${error.message}", error)
+                            android.util.Log.e("PlayerActivityExo", "Error code: ${error.errorCode}")
+                            
+                            val channel = ChannelRepository.getChannelById(channelId)
+                            val channelName = channel?.name ?: "Unknown"
+                            
+                            // Handle decoder errors specifically
+                            if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) {
+                                android.util.Log.e("PlayerActivityExo", "Decoder init failed for channel: $channelName")
+                                
+                                runOnUiThread {
+                                    android.widget.Toast.makeText(
+                                        this@PlayerActivityExo,
+                                        "Decoder gagal untuk '$channelName'.\nCoba channel lain atau tunggu sebentar.",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                    
+                                    // Try to clear error state and retry
+                                    try {
+                                        exoPlayer?.stop()
+                                        exoPlayer?.clearMediaItems()
+                                        
+                                        // Small delay before showing list
+                                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                            showChannelList.value = true
+                                        }, 500)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("PlayerActivityExo", "Error clearing player state", e)
+                                        showChannelList.value = true
+                                    }
+                                }
+                                return
+                            }
+                            
+                            val errorMessage = when (error.errorCode) {
+                                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+                                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> 
+                                    "Channel '$channelName' tidak dapat terhubung. Mungkin sedang down."
+                                androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
+                                    "Channel '$channelName' tidak tersedia (HTTP error)."
+                                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
+                                    "Format stream channel '$channelName' tidak valid."
+                                androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED ->
+                                    "Decoding error pada '$channelName'. Coba channel lain."
+                                else -> "Channel '$channelName' tidak dapat diputar. (Error: ${error.errorCode})"
+                            }
+                            
                             runOnUiThread {
                                 android.widget.Toast.makeText(
                                     this@PlayerActivityExo,
-                                    "Error: ${error.message}",
+                                    "$errorMessage\nTekan OK/Menu untuk pilih channel lain.",
                                     android.widget.Toast.LENGTH_LONG
                                 ).show()
+                                
+                                // Show channel list automatically so user can select another channel
+                                showChannelList.value = true
                             }
                         }
                     })
@@ -235,8 +285,22 @@ class PlayerActivityExo : ComponentActivity() {
     
     private fun releasePlayer() {
         android.util.Log.d("PlayerActivityExo", "Releasing ExoPlayer")
-        exoPlayer?.release()
-        exoPlayer = null
+        try {
+            exoPlayer?.let { player ->
+                // Stop playback first
+                player.stop()
+                // Clear all media items
+                player.clearMediaItems()
+                // Remove listeners to prevent callbacks during release
+                player.clearVideoSurface()
+                // Release player resources
+                player.release()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerActivityExo", "Error releasing player: ${e.message}", e)
+        } finally {
+            exoPlayer = null
+        }
     }
     
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -283,19 +347,55 @@ class PlayerActivityExo : ComponentActivity() {
     }
     
     private fun switchChannel(channel: Channel) {
-        channelId = channel.id
-        currentChannelIndex.value = ChannelRepository.getAllChannels().indexOfFirst { it.id == channelId }
-        
-        android.util.Log.d("PlayerActivityExo", "Switching to channel: ${channel.name}")
-        
         try {
+            channelId = channel.id
+            currentChannelIndex.value = ChannelRepository.getAllChannels().indexOfFirst { it.id == channelId }
+            
+            android.util.Log.d("PlayerActivityExo", "Switching to channel: ${channel.name}, URL: ${channel.url}")
+            
+            // Validate URL
+            if (channel.url.isBlank()) {
+                android.util.Log.e("PlayerActivityExo", "Channel URL is empty")
+                android.widget.Toast.makeText(
+                    this,
+                    "URL channel '${channel.name}' kosong.",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                return
+            }
+            
+            // Stop current playback first
+            exoPlayer?.stop()
+            
+            // Set new media item
             val mediaItem = MediaItem.fromUri(channel.url)
             exoPlayer?.setMediaItem(mediaItem)
             exoPlayer?.prepare()
             exoPlayer?.play()
+            
+            android.util.Log.d("PlayerActivityExo", "Channel switched successfully")
+            
+        } catch (e: IllegalStateException) {
+            android.util.Log.e("PlayerActivityExo", "Player state error when switching channel", e)
+            android.widget.Toast.makeText(
+                this,
+                "Gagal beralih ke '${channel.name}'. Player dalam kondisi tidak valid.",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: IllegalArgumentException) {
+            android.util.Log.e("PlayerActivityExo", "Invalid URL format", e)
+            android.widget.Toast.makeText(
+                this,
+                "URL channel '${channel.name}' tidak valid.",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
         } catch (e: Exception) {
-            android.util.Log.e("PlayerActivityExo", "Error switching channel", e)
-            android.widget.Toast.makeText(this, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            android.util.Log.e("PlayerActivityExo", "Unexpected error switching channel", e)
+            android.widget.Toast.makeText(
+                this,
+                "Error beralih ke '${channel.name}': ${e.message}",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
         }
     }
     
