@@ -10,6 +10,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -17,6 +21,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +52,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.tv.material3.*
 import androidx.compose.material3.Card as Material3Card
 import androidx.compose.material3.CardDefaults as Material3CardDefaults
+import androidx.compose.material3.Text as Material3Text
 import coil.compose.AsyncImage
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.ChannelRepository
@@ -48,40 +63,95 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        // Make status bar transparent with light icons (for dark theme)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        androidx.core.view.WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false // Light icons for dark theme
+        }
+        
         // Load saved channels
         ChannelRepository.loadChannels(this)
         
         setContent {
             MQLTVTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    shape = RectangleShape
-                ) {
-                    ChannelListScreen(
-                        onChannelClick = { channel ->
-                            try {
-                                android.util.Log.d("MainActivity", "Channel clicked: ${channel.name} (ID: ${channel.id}, URL: ${channel.url})")
-                                
-                                val intent = Intent(this@MainActivity, PlayerActivityExo::class.java)
-                                intent.putExtra("CHANNEL_ID", channel.id)
-                                
-                                android.util.Log.d("MainActivity", "Starting PlayerActivity with channel ID: ${channel.id}")
-                                startActivity(intent)
-                                
-                            } catch (e: Exception) {
-                                android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
-                                android.widget.Toast.makeText(
-                                    this@MainActivity, 
-                                    "Error: ${e.message}", 
-                                    android.widget.Toast.LENGTH_LONG
-                                ).show()
-                            }
-                        },
-                        onAddChannelClick = {
-                            val intent = Intent(this@MainActivity, AddChannelActivity::class.java)
-                            startActivity(intent)
+                var selectedTab by remember { mutableStateOf(0) }
+                
+                Scaffold(
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    bottomBar = {
+                        NavigationBar(
+                            containerColor = Color(0xFF1A1A1A),
+                            contentColor = Color.White
+                        ) {
+                            NavigationBarItem(
+                                icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Live", tint = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray) },
+                                label = { Material3Text("Live", color = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray) },
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 }
+                            )
+                            NavigationBarItem(
+                                icon = { Icon(Icons.Default.Movie, contentDescription = "Movie", tint = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
+                                label = { Material3Text("Movie", color = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 }
+                            )
+                            NavigationBarItem(
+                                icon = { Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFFE50914)) },
+                                label = { },
+                                selected = false,
+                                onClick = {
+                                    val intent = Intent(this@MainActivity, AddChannelActivity::class.java)
+                                    startActivity(intent)
+                                }
+                            )
+                            NavigationBarItem(
+                                icon = { Icon(Icons.Default.Search, contentDescription = "Series", tint = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
+                                label = { Material3Text("Series", color = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
+                                selected = selectedTab == 3,
+                                onClick = { selectedTab = 3 }
+                            )
+                            NavigationBarItem(
+                                icon = { Icon(Icons.Default.Settings, contentDescription = "Settings", tint = if (selectedTab == 4) Color(0xFFE50914) else Color.Gray) },
+                                label = { Material3Text("Settings", color = if (selectedTab == 4) Color(0xFFE50914) else Color.Gray) },
+                                selected = selectedTab == 4,
+                                onClick = { selectedTab = 4 }
+                            )
                         }
-                    )
+                    }
+                ) { paddingValues ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                            .background(Color(0xFF000000))
+                    ) {
+                        when (selectedTab) {
+                            0 -> LiveChannelsScreen(
+                                onChannelClick = { channel ->
+                                    try {
+                                        val intent = Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                        intent.putExtra("CHANNEL_ID", channel.id)
+                                        startActivity(intent)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
+                                    }
+                                }
+                            )
+                            1 -> CenterMessage("Movie - Coming Soon")
+                            3 -> CenterMessage("Series - Coming Soon")
+                            4 -> SettingsScreen(
+                                onClearPlaylist = {
+                                    ChannelRepository.clearAllChannels(this@MainActivity)
+                                    android.widget.Toast.makeText(
+                                        this@MainActivity,
+                                        "Playlist cleared",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -94,32 +164,79 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun ChannelListScreen(
-    onChannelClick: (Channel) -> Unit,
-    onAddChannelClick: () -> Unit
-) {
-    val context = LocalContext.current
-    val configuration = LocalConfiguration.current
-    val isTV = configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
-    
-    // Load channels on first composition
-    DisposableEffect(Unit) {
-        ChannelRepository.loadChannels(context)
-        android.util.Log.d("MainActivity", "Channels loaded in DisposableEffect")
-        onDispose { }
+fun CenterMessage(message: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF000000)),
+        contentAlignment = Alignment.Center
+    ) {
+        Material3Text(
+            text = message,
+            fontSize = 20.sp,
+            color = Color.Gray
+        )
     }
-    
+}
+
+@Composable
+fun SettingsScreen(onClearPlaylist: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF000000))
+            .padding(24.dp)
+    ) {
+        Material3Text(
+            text = "Settings",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            modifier = Modifier.padding(bottom = 24.dp)
+        )
+        
+        Material3Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onClearPlaylist() },
+            colors = Material3CardDefaults.cardColors(
+                containerColor = Color(0xFF1E1E1E)
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Material3Text(
+                    text = "Clear Playlist",
+                    fontSize = 18.sp,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f)
+                )
+                Material3Text(
+                    text = "›",
+                    fontSize = 24.sp,
+                    color = Color(0xFFE50914)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
+    val context = LocalContext.current
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
     var refreshKey by remember { mutableStateOf(0) }
     
-    // Listen to lifecycle events to refresh when returning from AddChannelActivity
+    // Listen to lifecycle events
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                android.util.Log.d("MainActivity", "Activity resumed, refreshing channels")
                 refreshKey++
             }
         }
@@ -129,112 +246,198 @@ fun ChannelListScreen(
         }
     }
     
-    // Refresh channels whenever refreshKey changes
+    // Refresh channels
     LaunchedEffect(refreshKey) {
         ChannelRepository.loadChannels(context)
         channels = ChannelRepository.getAllChannels()
-        android.util.Log.d("MainActivity", "Loaded ${channels.size} channels:")
-        channels.forEach { channel ->
-            android.util.Log.d("MainActivity", "  - ${channel.name} (ID: ${channel.id})")
-        }
     }
     
-    // Determine grid columns based on device type and orientation
-    val gridColumns = if (isTV) {
-        4
-    } else {
-        if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 3 else 2
+    val categories = remember(channels) {
+        ChannelRepository.getAllCategories()
     }
     
-    val contentPadding = if (isTV) 32.dp else 16.dp
-    val headerFontSize = if (isTV) 36.sp else 24.sp
-    
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1A1A1A))
-            .padding(contentPadding)
+            .background(Color(0xFF000000))
+            .statusBarsPadding()
     ) {
-        // Header with Add button and Clear button
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "IPTV Channels",
-                fontSize = headerFontSize,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            
+        // Header
+        item {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Clear Playlist Button
-                Box(
-                    modifier = Modifier
-                        .height(if (isTV) 56.dp else 48.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color(0xFFFF5252))
-                        .clickable { 
-                            // Clear all channels
-                            ChannelRepository.clearAllChannels(context)
-                            refreshKey++
-                            android.widget.Toast.makeText(
-                                context,
-                                "Playlist cleared",
-                                android.widget.Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                        .padding(horizontal = 16.dp),
-                    contentAlignment = Alignment.Center
+                Material3Text(
+                    text = "M3U Playlist",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "Clear",
-                        fontSize = if (isTV) 18.sp else 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
                     )
-                }
-                
-                // Add Channel Button
-                Box(
-                    modifier = Modifier
-                        .size(if (isTV) 56.dp else 48.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF00BCD4))
-                        .clickable { onAddChannelClick() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "+",
-                        fontSize = if (isTV) 32.sp else 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = "Favorites",
+                        tint = Color(0xFFE50914),
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
         }
         
-        // Channel Grid
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(gridColumns),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(channels) { channel ->
-                ChannelCard(
-                    channel = channel,
-                    onClick = { 
-                        android.util.Log.d("MainActivity", "ChannelCard clicked: ${channel.name} (ID: ${channel.id})")
-                        onChannelClick(channel) 
-                    },
-                    isTV = isTV
+        // Recently Watched Section
+        if (channels.isNotEmpty()) {
+            item {
+                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Material3Text(
+                            text = "Recently Watched",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Material3Text(
+                            text = "See all",
+                            fontSize = 14.sp,
+                            color = Color(0xFF2196F3)
+                        )
+                    }
+                    
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(channels.take(5)) { channel ->
+                            ChannelCardCompact(channel, onChannelClick)
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Category Sections
+        categories.forEach { category ->
+            item {
+                val categoryChannels = ChannelRepository.getChannelsByCategory(category)
+                
+                if (categoryChannels.isNotEmpty()) {
+                    Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Material3Text(
+                                text = category,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Material3Text(
+                                text = "See all",
+                                fontSize = 14.sp,
+                                color = Color(0xFF2196F3)
+                            )
+                        }
+                        
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(categoryChannels) { channel ->
+                                ChannelCardCompact(channel, onChannelClick)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChannelCardCompact(channel: Channel, onClick: (Channel) -> Unit) {
+    Material3Card(
+        onClick = { onClick(channel) },
+        modifier = Modifier
+            .width(120.dp)
+            .height(140.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = Material3CardDefaults.cardColors(
+            containerColor = Color(0xFF2A2A2A)
+        )
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Logo/Icon placeholder
+            if (channel.logo.isNotEmpty()) {
+                AsyncImage(
+                    model = channel.logo,
+                    contentDescription = channel.name,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1565C0)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+            }
+            
+            // Favorite heart icon (top-left)
+            Icon(
+                imageVector = Icons.Default.Favorite,
+                contentDescription = "Favorite",
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .size(20.dp)
+            )
+            
+            // Channel name overlay (bottom)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(8.dp)
+            ) {
+                Material3Text(
+                    text = channel.name,
+                    fontSize = 12.sp,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

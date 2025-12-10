@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MQL TV</string>
+    <string name="app_name">MqlTV</string>
     <string name="channel_list_title">IPTV Channels</string>
     <string name="loading">Loading…</string>
     <string name="error_loading_stream">Error loading stream</string>
