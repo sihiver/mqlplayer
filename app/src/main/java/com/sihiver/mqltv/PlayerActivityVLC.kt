@@ -241,25 +241,44 @@ class PlayerActivityVLC : ComponentActivity() {
     
     private fun playChannel(ch: Channel) {
         try {
+            android.util.Log.d("PlayerActivityVLC", "playChannel called: ${ch.name}, URL: ${ch.url}")
+            
+            // Check if libVLC is available
+            val vlc = libVLC
+            val player = vlcPlayer
+            
+            if (vlc == null || player == null) {
+                android.util.Log.e("PlayerActivityVLC", "libVLC or player is null, reinitializing...")
+                channelId = ch.id
+                initializePlayer()
+                return
+            }
+            
             channelId = ch.id
             currentChannelName.value = ch.name
             
-            vlcPlayer?.stop()
+            // Stop current playback and release old media
+            player.stop()
             
-            val media = Media(libVLC, Uri.parse(ch.url)).apply {
+            // Create new media with the channel URL
+            val media = Media(vlc, Uri.parse(ch.url)).apply {
                 setHWDecoderEnabled(true, false)
                 addOption(":network-caching=1500")
                 addOption(":live-caching=1500")
             }
             
-            vlcPlayer?.media = media
+            // Set media and play
+            player.media = media
             media.release()
-            vlcPlayer?.play()
+            player.play()
+            
+            android.util.Log.d("PlayerActivityVLC", "Channel playback started: ${ch.name}")
             
             showChannelList.value = false
             
         } catch (e: Exception) {
-            android.util.Log.e("PlayerActivityVLC", "Error playing channel", e)
+            android.util.Log.e("PlayerActivityVLC", "Error playing channel: ${e.message}", e)
+            android.widget.Toast.makeText(this, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
     
