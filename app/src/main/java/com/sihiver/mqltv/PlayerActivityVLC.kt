@@ -76,6 +76,10 @@ class PlayerActivityVLC : ComponentActivity() {
     private val selectedListIndex = mutableStateOf(0)
     private val isBuffering = mutableStateOf(true)
     private val bufferingPercent = mutableStateOf(0f)
+    private val isVideoReady = mutableStateOf(false)
+    private var savedAudioTrack: Int = -1
+    private var pendingPlay = false
+    private var isChangingChannel = false
     private val showSidebar = mutableStateOf(false)
     private val selectedCategory = mutableStateOf("all") // all, favorites, recent, or category name
     private val selectedSidebarIndex = mutableStateOf(0)
@@ -190,12 +194,13 @@ class PlayerActivityVLC : ComponentActivity() {
             libVLC = LibVLC(this, options)
             
             vlcPlayer = MediaPlayer(libVLC).apply {
+                // Mute audio dari awal sebelum event apapun
+                volume = 0
+                
                 setEventListener { event ->
                     when (event.type) {
                         MediaPlayer.Event.Playing -> {
                             android.util.Log.d("PlayerActivityVLC", "Event: Playing")
-                            // Playing means video is running, hide buffering
-                            isBuffering.value = false
                             bufferingPercent.value = 100f
                         }
                         MediaPlayer.Event.Paused -> {
@@ -203,10 +208,7 @@ class PlayerActivityVLC : ComponentActivity() {
                         }
                         MediaPlayer.Event.Buffering -> {
                             val percent = event.buffering
-                            android.util.Log.d("PlayerActivityVLC", "Event: Buffering $percent%")
                             bufferingPercent.value = percent
-                            // Only show buffering if percent is low (< 95%)
-                            // Some streams report 100% but still buffer briefly
                             if (percent >= 95f) {
                                 isBuffering.value = false
                             }
@@ -226,14 +228,18 @@ class PlayerActivityVLC : ComponentActivity() {
                         }
                         MediaPlayer.Event.Vout -> {
                             android.util.Log.d("PlayerActivityVLC", "Event: Vout count=${event.voutCount}")
-                            // Video output available means playback started
-                            if (event.voutCount > 0) {
+                            // Video output tersedia = video sudah siap ditampilkan
+                            if (event.voutCount > 0 && !isVideoReady.value) {
+                                isVideoReady.value = true
+                                android.util.Log.d("PlayerActivityVLC", "Video ready")
+                                // Hide buffering
                                 isBuffering.value = false
                             }
                         }
                         MediaPlayer.Event.TimeChanged -> {
-                            // TimeChanged means video is playing, definitely not buffering
-                            if (isBuffering.value) {
+                            // TimeChanged berarti video sudah jalan
+                            // Tapi hanya hide buffering jika video sudah ready
+                            if (isBuffering.value && isVideoReady.value) {
                                 isBuffering.value = false
                             }
                         }
@@ -263,9 +269,16 @@ class PlayerActivityVLC : ComponentActivity() {
             
             vlcPlayer?.media = media
             media.release()
+            
+            // Reset video ready state
+            isVideoReady.value = false
+            pendingPlay = false
+            
+            // Langsung play dengan volume normal
+            vlcPlayer?.volume = 100
             vlcPlayer?.play()
             
-            android.util.Log.d("PlayerActivityVLC", "Video attached and playing")
+            android.util.Log.d("PlayerActivityVLC", "Video playing with full audio")
             
         } catch (e: Exception) {
             android.util.Log.e("PlayerActivityVLC", "Error initializing player", e)
@@ -273,9 +286,90 @@ class PlayerActivityVLC : ComponentActivity() {
         }
     }
     
+    // Enable audio setelah video ready - reload media tanpa :no-audio
+    private fun enableAudioAfterVideoReady() {
+        try {
+            val ch = ChannelRepository.getChannelById(channelId) ?: return
+            
+            // Get current position
+            val currentPos = vlcPlayer?.time ?: 0L
+            
+            android.util.Log.d("PlayerActivityVLC", "Enabling audio at position $currentPos")
+            
+            // Create new media WITH audio
+            val media = Media(libVLC, Uri.parse(ch.url)).apply {
+                setHWDecoderEnabled(true, false)
+                addOption(":network-caching=300")
+                addOption(":live-caching=300")
+                // NO :no-audio option - audio akan aktif
+            }
+            
+            vlcPlayer?.media = media
+            media.release()
+            
+            // Set volume penuh
+            vlcPlayer?.volume = 100
+            
+            // Play dari posisi yang sama (untuk live stream akan start dari current)
+            vlcPlayer?.play()
+            
+            android.util.Log.d("PlayerActivityVLC", "Audio enabled, playing with full volume")
+            
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerActivityVLC", "Error enabling audio", e)
+        }
+    }
+    
     private fun releasePlayer() {
         try {
             vlcPlayer?.apply {
+                // Mute dan stop audio dulu sebelum release
+                volume = 0
+                audioTrack = -1
+                stop()
+                detachViews()
+                release()
+            }
+            vlcPlayer = null
+            
+            libVLC?.release()
+            libVLC = null
+            
+            // Reset saved audio track
+            savedAudioTrack = -1
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerActivityVLC", "Error releasing player", e)
+        }
+    }
+    
+    private fun playChannel(ch: Channel) {
+        android.util.Log.d("PlayerActivityVLC", "playChannel called: ${ch.name}, URL: ${ch.url}")
+        
+        // Cegah double call
+        if (isChangingChannel) {
+            android.util.Log.d("PlayerActivityVLC", "Already changing channel, ignoring")
+            return
+        }
+        isChangingChannel = true
+        
+        // Close overlay first
+        showChannelList.value = false
+        
+        // Set buffering state dan reset video ready
+        isBuffering.value = true
+        bufferingPercent.value = 0f
+        isVideoReady.value = false
+        savedAudioTrack = -1
+        pendingPlay = false
+        
+        // Update channel info
+        channelId = ch.id
+        currentChannelName.value = ch.name
+        
+        // Release SYNCHRONOUSLY di main thread
+        try {
+            vlcPlayer?.apply {
+                volume = 0
                 stop()
                 detachViews()
                 release()
@@ -285,55 +379,62 @@ class PlayerActivityVLC : ComponentActivity() {
             libVLC?.release()
             libVLC = null
         } catch (e: Exception) {
-            android.util.Log.e("PlayerActivityVLC", "Error releasing player", e)
+            android.util.Log.e("PlayerActivityVLC", "Error stopping player", e)
         }
-    }
-    
-    private fun playChannel(ch: Channel) {
-        android.util.Log.d("PlayerActivityVLC", "playChannel called: ${ch.name}, URL: ${ch.url}")
         
-        // Close overlay first
-        showChannelList.value = false
-        
-        // Set buffering state
-        isBuffering.value = true
-        bufferingPercent.value = 0f
-        
-        // Update channel info
-        channelId = ch.id
-        currentChannelName.value = ch.name
-        
-        // Release current player completely and reinitialize (like from home)
-        releasePlayer()
-        
-        // Small delay then reinitialize
+        // Delay lalu init baru
         videoLayout.postDelayed({
+            isChangingChannel = false
             initializePlayer()
-        }, 100)
+        }, 300)
     }
     
     // Direct play untuk D-pad - sama seperti playChannel, full reinit
     private fun playChannelDirect(ch: Channel) {
         android.util.Log.d("PlayerActivityVLC", "playChannelDirect called: ${ch.name}, URL: ${ch.url}")
         
+        // Cegah double call
+        if (isChangingChannel) {
+            android.util.Log.d("PlayerActivityVLC", "Already changing channel, ignoring")
+            return
+        }
+        isChangingChannel = true
+        
         // Close overlay first
         showChannelList.value = false
         
-        // Set buffering state
+        // Set buffering state dan reset video ready
         isBuffering.value = true
         bufferingPercent.value = 0f
+        isVideoReady.value = false
+        savedAudioTrack = -1
+        pendingPlay = false
         
         // Update channel info
         channelId = ch.id
         currentChannelName.value = ch.name
         
-        // Release current player completely and reinitialize
-        releasePlayer()
+        // Release SYNCHRONOUSLY di main thread
+        try {
+            vlcPlayer?.apply {
+                volume = 0
+                stop()
+                detachViews()
+                release()
+            }
+            vlcPlayer = null
+            
+            libVLC?.release()
+            libVLC = null
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerActivityVLC", "Error stopping player", e)
+        }
         
-        // Small delay then reinitialize
+        // Delay lalu init baru
         videoLayout.postDelayed({
+            isChangingChannel = false
             initializePlayer()
-        }, 100)
+        }, 300)
     }
     
     // Helper function to get filtered channels based on selected category
