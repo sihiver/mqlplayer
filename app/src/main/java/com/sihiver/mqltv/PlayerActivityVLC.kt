@@ -65,6 +65,7 @@ class PlayerActivityVLC : ComponentActivity() {
     
     private val showChannelList = mutableStateOf(false)
     private val currentChannelName = mutableStateOf("")
+    private val selectedListIndex = mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -262,32 +263,94 @@ class PlayerActivityVLC : ComponentActivity() {
         }
     }
     
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Hanya handle ACTION_DOWN
+        if (event.action != KeyEvent.ACTION_DOWN) {
+            return super.dispatchKeyEvent(event)
+        }
+        
+        val keyCode = event.keyCode
+        android.util.Log.d("PlayerActivityVLC", "dispatchKeyEvent: keyCode=$keyCode, overlay=${showChannelList.value}")
+        
         val channels = ChannelRepository.getAllChannels()
         val currentIndex = channels.indexOfFirst { it.id == channelId }
         
-        when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
-                if (currentIndex > 0) {
-                    playChannel(channels[currentIndex - 1])
+        // Jika channel list overlay tampil
+        if (showChannelList.value) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    if (selectedListIndex.value > 0) {
+                        selectedListIndex.value = selectedListIndex.value - 1
+                    }
+                    return true
                 }
-                return true
-            }
-            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                if (currentIndex < channels.size - 1) {
-                    playChannel(channels[currentIndex + 1])
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    if (selectedListIndex.value < channels.size - 1) {
+                        selectedListIndex.value = selectedListIndex.value + 1
+                    }
+                    return true
                 }
-                return true
+                KeyEvent.KEYCODE_DPAD_CENTER, 
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER,
+                KeyEvent.KEYCODE_BUTTON_A,
+                23 -> {
+                    // Play selected channel
+                    android.util.Log.d("PlayerActivityVLC", "OK pressed - playing index: ${selectedListIndex.value}")
+                    if (selectedListIndex.value in channels.indices) {
+                        val selectedChannel = channels[selectedListIndex.value]
+                        android.util.Log.d("PlayerActivityVLC", "Playing: ${selectedChannel.name}")
+                        playChannel(selectedChannel)
+                    }
+                    return true
+                }
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                    showChannelList.value = false
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    showChannelList.value = false
+                    return true
+                }
             }
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                showChannelList.value = !showChannelList.value
-                return true
-            }
-            KeyEvent.KEYCODE_MENU -> {
-                showChannelList.value = !showChannelList.value
-                return true
+        } else {
+            // Overlay tidak tampil
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
+                    if (currentIndex > 0) {
+                        playChannel(channels[currentIndex - 1])
+                    }
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                    if (currentIndex < channels.size - 1) {
+                        playChannel(channels[currentIndex + 1])
+                    }
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER, 
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER,
+                KeyEvent.KEYCODE_BUTTON_A,
+                KeyEvent.KEYCODE_DPAD_LEFT,
+                23 -> {
+                    selectedListIndex.value = if (currentIndex >= 0) currentIndex else 0
+                    showChannelList.value = true
+                    return true
+                }
+                KeyEvent.KEYCODE_MENU -> {
+                    selectedListIndex.value = if (currentIndex >= 0) currentIndex else 0
+                    showChannelList.value = true
+                    return true
+                }
             }
         }
+        
+        return super.dispatchKeyEvent(event)
+    }
+    
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Handled by dispatchKeyEvent
         return super.onKeyDown(keyCode, event)
     }
     
@@ -297,10 +360,12 @@ class PlayerActivityVLC : ComponentActivity() {
         val listState = rememberLazyListState()
         val currentChId = channelId
         val currentIndex = channels.indexOfFirst { it.id == currentChId }
+        val selectedIdx = selectedListIndex.value
         
-        LaunchedEffect(showChannelList.value, currentIndex) {
-            if (showChannelList.value && currentIndex >= 0) {
-                listState.animateScrollToItem(maxOf(0, currentIndex - 2))
+        // Auto scroll ke selected item saat list dibuka atau selected berubah
+        LaunchedEffect(showChannelList.value, selectedIdx) {
+            if (showChannelList.value && selectedIdx >= 0) {
+                listState.animateScrollToItem(maxOf(0, selectedIdx - 2))
             }
         }
         
@@ -362,21 +427,29 @@ class PlayerActivityVLC : ComponentActivity() {
                             ) {
                                 itemsIndexed(channels) { index, item ->
                                     val isCurrentChannel = item.id == currentChId
+                                    val isSelected = index == selectedIdx
                                     
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .background(
-                                                if (isCurrentChannel) Color(0xFF2196F3)
-                                                else Color.Transparent
+                                                when {
+                                                    isSelected && isCurrentChannel -> Color(0xFF1976D2) // Selected + playing
+                                                    isSelected -> Color(0xFF424242) // Selected only
+                                                    isCurrentChannel -> Color(0xFF2196F3) // Playing only
+                                                    else -> Color.Transparent
+                                                }
                                             )
-                                            .clickable { playChannel(item) }
+                                            .clickable { 
+                                                selectedListIndex.value = index
+                                                playChannel(item) 
+                                            }
                                             .padding(horizontal = 16.dp, vertical = 12.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
                                             text = (index + 1).toString(),
-                                            color = Color.Gray,
+                                            color = if (isSelected) Color.White else Color.Gray,
                                             fontSize = 12.sp,
                                             modifier = Modifier.width(30.dp)
                                         )
@@ -386,6 +459,14 @@ class PlayerActivityVLC : ComponentActivity() {
                                             fontSize = 14.sp,
                                             maxLines = 1
                                         )
+                                        if (isCurrentChannel) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                            Text(
+                                                text = "▶",
+                                                color = Color.White,
+                                                fontSize = 12.sp
+                                            )
+                                        }
                                     }
                                 }
                             }
