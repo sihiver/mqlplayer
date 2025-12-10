@@ -33,6 +33,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -70,6 +76,9 @@ class PlayerActivityVLC : ComponentActivity() {
     private val selectedListIndex = mutableStateOf(0)
     private val isBuffering = mutableStateOf(true)
     private val bufferingPercent = mutableStateOf(0f)
+    private val showSidebar = mutableStateOf(false)
+    private val selectedCategory = mutableStateOf("all") // all, favorites, recent, or category name
+    private val selectedSidebarIndex = mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -327,6 +336,17 @@ class PlayerActivityVLC : ComponentActivity() {
         }, 100)
     }
     
+    // Helper function to get filtered channels based on selected category
+    private fun getFilteredChannels(): List<Channel> {
+        val allChannels = ChannelRepository.getAllChannels()
+        return when (selectedCategory.value) {
+            "all" -> allChannels
+            "favorites" -> ChannelRepository.getFavorites()
+            "recent" -> allChannels.take(10)
+            else -> allChannels.filter { it.category == selectedCategory.value }
+        }
+    }
+    
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
         
@@ -341,14 +361,30 @@ class PlayerActivityVLC : ComponentActivity() {
                 23 -> {
                     // Consume both DOWN and UP untuk mencegah double action
                     if (event.action == KeyEvent.ACTION_DOWN) {
-                        val channels = ChannelRepository.getAllChannels()
-                        android.util.Log.d("PlayerActivityVLC", "OK DOWN - playing index: ${selectedListIndex.value}")
-                        if (selectedListIndex.value in channels.indices) {
-                            val selectedChannel = channels[selectedListIndex.value]
-                            android.util.Log.d("PlayerActivityVLC", "Playing channel: ${selectedChannel.name}, URL: ${selectedChannel.url}")
-                            
-                            // Call play directly here
-                            playChannelDirect(selectedChannel)
+                        if (showSidebar.value) {
+                            // Di sidebar, pilih kategori
+                            val allChannels = ChannelRepository.getAllChannels()
+                            val categories = allChannels.map { it.category }.distinct().filter { it.isNotEmpty() }
+                            val sidebarItems = mutableListOf<String>().apply {
+                                add("all")
+                                add("favorites")
+                                add("recent")
+                                addAll(categories)
+                            }
+                            if (selectedSidebarIndex.value in sidebarItems.indices) {
+                                selectedCategory.value = sidebarItems[selectedSidebarIndex.value]
+                                selectedListIndex.value = 0
+                                showSidebar.value = false // Kembali ke channel list
+                            }
+                        } else {
+                            // Di channel list, play channel
+                            val filteredChannels = getFilteredChannels()
+                            android.util.Log.d("PlayerActivityVLC", "OK DOWN - playing index: ${selectedListIndex.value}")
+                            if (selectedListIndex.value in filteredChannels.indices) {
+                                val selectedChannel = filteredChannels[selectedListIndex.value]
+                                android.util.Log.d("PlayerActivityVLC", "Playing channel: ${selectedChannel.name}")
+                                playChannelDirect(selectedChannel)
+                            }
                         }
                     }
                     return true // Consume event completely
@@ -361,33 +397,69 @@ class PlayerActivityVLC : ComponentActivity() {
             return super.dispatchKeyEvent(event)
         }
         
-        android.util.Log.d("PlayerActivityVLC", "dispatchKeyEvent: keyCode=$keyCode, overlay=${showChannelList.value}")
+        android.util.Log.d("PlayerActivityVLC", "dispatchKeyEvent: keyCode=$keyCode, overlay=${showChannelList.value}, sidebar=${showSidebar.value}")
         
-        val channels = ChannelRepository.getAllChannels()
-        val currentIndex = channels.indexOfFirst { it.id == channelId }
+        val allChannels = ChannelRepository.getAllChannels()
+        val currentIndex = allChannels.indexOfFirst { it.id == channelId }
         
         // Jika channel list overlay tampil
         if (showChannelList.value) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_UP -> {
-                    if (selectedListIndex.value > 0) {
-                        selectedListIndex.value = selectedListIndex.value - 1
+            if (showSidebar.value) {
+                // Navigasi di sidebar
+                val categories = allChannels.map { it.category }.distinct().filter { it.isNotEmpty() }
+                val sidebarCount = 3 + categories.size // all, favorites, recent + categories
+                
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP -> {
+                        if (selectedSidebarIndex.value > 0) {
+                            selectedSidebarIndex.value = selectedSidebarIndex.value - 1
+                        }
+                        return true
                     }
-                    return true
-                }
-                KeyEvent.KEYCODE_DPAD_DOWN -> {
-                    if (selectedListIndex.value < channels.size - 1) {
-                        selectedListIndex.value = selectedListIndex.value + 1
+                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (selectedSidebarIndex.value < sidebarCount - 1) {
+                            selectedSidebarIndex.value = selectedSidebarIndex.value + 1
+                        }
+                        return true
                     }
-                    return true
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        showSidebar.value = false
+                        return true
+                    }
+                    KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                        showSidebar.value = false
+                        return true
+                    }
                 }
-                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                    showChannelList.value = false
-                    return true
-                }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    showChannelList.value = false
-                    return true
+            } else {
+                // Navigasi di channel list
+                val filteredChannels = getFilteredChannels()
+                
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP -> {
+                        if (selectedListIndex.value > 0) {
+                            selectedListIndex.value = selectedListIndex.value - 1
+                        }
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (selectedListIndex.value < filteredChannels.size - 1) {
+                            selectedListIndex.value = selectedListIndex.value + 1
+                        }
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        showSidebar.value = true
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        showChannelList.value = false
+                        return true
+                    }
+                    KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                        showChannelList.value = false
+                        return true
+                    }
                 }
             }
         } else {
@@ -395,13 +467,13 @@ class PlayerActivityVLC : ComponentActivity() {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
                     if (currentIndex > 0) {
-                        playChannel(channels[currentIndex - 1])
+                        playChannel(allChannels[currentIndex - 1])
                     }
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                    if (currentIndex < channels.size - 1) {
-                        playChannel(channels[currentIndex + 1])
+                    if (currentIndex < allChannels.size - 1) {
+                        playChannel(allChannels[currentIndex + 1])
                     }
                     return true
                 }
@@ -433,15 +505,42 @@ class PlayerActivityVLC : ComponentActivity() {
     
     @Composable
     private fun ChannelListOverlay() {
-        val channels = remember { ChannelRepository.getAllChannels() }
+        val allChannels: List<Channel> = remember { ChannelRepository.getAllChannels() }
+        val favoriteChannels: List<Channel> = remember { ChannelRepository.getFavorites() }
+        val categories: List<String> = remember { 
+            allChannels.map { ch -> ch.category }.distinct().filter { cat -> cat.isNotEmpty() }
+        }
+        
+        // Filter channels based on selected category
+        val filteredChannels: List<Channel> = remember(selectedCategory.value) {
+            when (selectedCategory.value) {
+                "all" -> allChannels
+                "favorites" -> favoriteChannels
+                "recent" -> allChannels.take(10) // Last 10 channels as recent (placeholder)
+                else -> allChannels.filter { ch -> ch.category == selectedCategory.value }
+            }
+        }
+        
         val listState = rememberLazyListState()
+        val sidebarListState = rememberLazyListState()
         val currentChId = channelId
-        val currentIndex = channels.indexOfFirst { it.id == currentChId }
         val selectedIdx = selectedListIndex.value
         
-        // Auto scroll ke selected item saat list dibuka atau selected berubah
-        LaunchedEffect(showChannelList.value, selectedIdx) {
-            if (showChannelList.value && selectedIdx >= 0) {
+        // Build sidebar items
+        val sidebarItems = remember(categories) {
+            mutableListOf<Pair<String, String>>().apply {
+                add("all" to "Semua Channel")
+                add("favorites" to "Favorit")
+                add("recent" to "Terakhir Ditonton")
+                categories.forEach { cat ->
+                    add(cat to cat)
+                }
+            }
+        }
+        
+        // Auto scroll ke selected item
+        LaunchedEffect(showChannelList.value, selectedIdx, selectedCategory.value) {
+            if (showChannelList.value && selectedIdx >= 0 && selectedIdx < filteredChannels.size) {
                 listState.animateScrollToItem(maxOf(0, selectedIdx - 2))
             }
         }
@@ -450,106 +549,238 @@ class PlayerActivityVLC : ComponentActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.7f))
+                    .background(Color.Black.copy(alpha = 0.4f))
             ) {
                 Row(
                     modifier = Modifier.fillMaxSize()
                 ) {
+                    // Single Card dengan sidebar dan channel list
                     Card(
                         modifier = Modifier
-                            .width(350.dp)
+                            .width(if (showSidebar.value) 550.dp else 380.dp)
                             .fillMaxHeight()
                             .padding(16.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFF1E1E1E)
+                            containerColor = Color(0xFF1E1E1E).copy(alpha = 0.9f)
                         )
                     ) {
-                        Column {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.List,
-                                        contentDescription = null,
-                                        tint = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Channels (VLC)",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp
-                                    )
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            // Sidebar kategori (muncul jika showSidebar true)
+                            if (showSidebar.value) {
+                                Column(
+                                    modifier = Modifier
+                                        .width(170.dp)
+                                        .fillMaxHeight()
+                                        .background(Color(0xFF252525))
+                                ) {
+                                    LazyColumn(
+                                        state = sidebarListState,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        itemsIndexed(sidebarItems) { index, (key, label) ->
+                                            val isSelected = selectedCategory.value == key
+                                            val isSidebarSelected = index == selectedSidebarIndex.value
+                                            
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(
+                                                        when {
+                                                            isSidebarSelected -> Color(0xFF424242)
+                                                            isSelected -> Color(0xFF1976D2)
+                                                            else -> Color.Transparent
+                                                        }
+                                                    )
+                                                    .clickable {
+                                                        selectedCategory.value = key
+                                                        selectedListIndex.value = 0
+                                                        selectedSidebarIndex.value = index
+                                                        showSidebar.value = false
+                                                    }
+                                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = when (key) {
+                                                        "all" -> Icons.AutoMirrored.Filled.List
+                                                        "favorites" -> Icons.Filled.Favorite
+                                                        "recent" -> Icons.Filled.History
+                                                        else -> Icons.Filled.PlayArrow
+                                                    },
+                                                    contentDescription = null,
+                                                    tint = if (isSelected) Color.White else Color.Gray,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = label,
+                                                    color = if (isSelected) Color.White else Color.Gray,
+                                                    fontSize = 13.sp,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
-                                IconButton(onClick = { showChannelList.value = false }) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Close",
-                                        tint = Color.White
-                                    )
-                                }
+                                
+                                // Divider antara sidebar dan channel list
+                                Box(
+                                    modifier = Modifier
+                                        .width(1.dp)
+                                        .fillMaxHeight()
+                                        .background(Color.Gray.copy(alpha = 0.3f))
+                                )
                             }
                             
-                            Divider(color = Color.Gray.copy(alpha = 0.3f))
-                            
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                itemsIndexed(channels) { index, item ->
-                                    val isCurrentChannel = item.id == currentChId
-                                    val isSelected = index == selectedIdx
-                                    
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(
-                                                when {
-                                                    isSelected && isCurrentChannel -> Color(0xFF1976D2) // Selected + playing
-                                                    isSelected -> Color(0xFF424242) // Selected only
-                                                    isCurrentChannel -> Color(0xFF2196F3) // Playing only
-                                                    else -> Color.Transparent
-                                                }
-                                            )
-                                            .clickable { 
-                                                selectedListIndex.value = index
-                                                playChannel(item) 
-                                            }
-                                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                            // Channel list
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Header - klik untuk toggle sidebar
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { showSidebar.value = !showSidebar.value }
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = when (selectedCategory.value) {
+                                                "all" -> Icons.AutoMirrored.Filled.List
+                                                "favorites" -> Icons.Filled.Favorite
+                                                "recent" -> Icons.Filled.History
+                                                else -> Icons.Filled.PlayArrow
+                                            },
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = when (selectedCategory.value) {
+                                                "all" -> "Semua Channel"
+                                                "favorites" -> "Favorit"
+                                                "recent" -> "Terakhir Ditonton"
+                                                else -> selectedCategory.value
+                                            },
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp
+                                        )
+                                        Text(
+                                            text = " (${filteredChannels.size})",
+                                            color = Color.Gray,
+                                            fontSize = 14.sp
+                                        )
+                                        Icon(
+                                            imageVector = if (showSidebar.value) 
+                                                Icons.Default.KeyboardArrowLeft 
+                                            else 
+                                                Icons.Default.KeyboardArrowRight,
+                                            contentDescription = "Toggle sidebar",
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    IconButton(onClick = { showChannelList.value = false }) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Close",
+                                            tint = Color.White
+                                        )
+                                    }
+                                }
+                                
+                                Divider(color = Color.Gray.copy(alpha = 0.3f))
+                                
+                                // Channel list
+                                if (filteredChannels.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = (index + 1).toString(),
-                                            color = if (isSelected) Color.White else Color.Gray,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.width(30.dp)
+                                            text = "Tidak ada channel",
+                                            color = Color.Gray,
+                                            fontSize = 14.sp
                                         )
-                                        Text(
-                                            text = item.name,
-                                            color = Color.White,
-                                            fontSize = 14.sp,
-                                            maxLines = 1
-                                        )
-                                        if (isCurrentChannel) {
-                                            Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        state = listState,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    itemsIndexed(filteredChannels) { index, item ->
+                                        val isCurrentChannel = item.id == currentChId
+                                        val isSelected = index == selectedIdx
+                                        val isFavorite = favoriteChannels.any { fav -> fav.id == item.id }
+                                        
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(
+                                                    when {
+                                                        isSelected && isCurrentChannel -> Color(0xFF1976D2)
+                                                        isSelected -> Color(0xFF424242)
+                                                        isCurrentChannel -> Color(0xFF2196F3)
+                                                        else -> Color.Transparent
+                                                    }
+                                                )
+                                                .clickable { 
+                                                    selectedListIndex.value = index
+                                                    playChannel(item) 
+                                                }
+                                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Text(
-                                                text = "▶",
-                                                color = Color.White,
-                                                fontSize = 12.sp
+                                                text = (index + 1).toString(),
+                                                color = if (isSelected) Color.White else Color.Gray,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.width(30.dp)
                                             )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = item.name,
+                                                    color = Color.White,
+                                                    fontSize = 14.sp,
+                                                    maxLines = 1
+                                                )
+                                                if (item.category.isNotEmpty() && selectedCategory.value == "all") {
+                                                    Text(
+                                                        text = item.category,
+                                                        color = Color.Gray,
+                                                        fontSize = 11.sp,
+                                                        maxLines = 1
+                                                    )
+                                                }
+                                            }
+                                            if (isFavorite) {
+                                                Icon(
+                                                    Icons.Filled.Favorite,
+                                                    contentDescription = null,
+                                                    tint = Color.Red,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                            }
+                                            if (isCurrentChannel) {
+                                                Text(
+                                                    text = "▶",
+                                                    color = Color.White,
+                                                    fontSize = 12.sp
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                    }
                     
+                    // Area kosong untuk close overlay
                     Box(
                         modifier = Modifier
                             .weight(1f)
