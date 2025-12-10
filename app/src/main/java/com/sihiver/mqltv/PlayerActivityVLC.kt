@@ -4,7 +4,9 @@ import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -52,12 +54,13 @@ import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.interfaces.IVLCVout
+import org.videolan.libvlc.util.VLCVideoLayout
 
-class PlayerActivityVLC : ComponentActivity(), IVLCVout.Callback {
+class PlayerActivityVLC : ComponentActivity() {
 
     private var libVLC: LibVLC? = null
     private var vlcPlayer: MediaPlayer? = null
-    private lateinit var surfaceView: SurfaceView
+    private lateinit var videoLayout: VLCVideoLayout
     private var channelId: Int = -1
     
     private val showChannelList = mutableStateOf(false)
@@ -89,16 +92,17 @@ class PlayerActivityVLC : ComponentActivity(), IVLCVout.Callback {
             setBackgroundColor(android.graphics.Color.BLACK)
         }
         
-        surfaceView = SurfaceView(this).apply {
+        // Use VLCVideoLayout - the official way to display VLC video
+        videoLayout = VLCVideoLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
             keepScreenOn = true
         }
-        rootLayout.addView(surfaceView)
+        rootLayout.addView(videoLayout)
         
-        surfaceView.setOnClickListener {
+        videoLayout.setOnClickListener {
             showChannelList.value = !showChannelList.value
         }
         
@@ -172,11 +176,6 @@ class PlayerActivityVLC : ComponentActivity(), IVLCVout.Callback {
             libVLC = LibVLC(this, options)
             
             vlcPlayer = MediaPlayer(libVLC).apply {
-                vlcVout.setVideoSurface(surfaceView.holder.surface, surfaceView.holder)
-                vlcVout.setWindowSize(surfaceView.width, surfaceView.height)
-                vlcVout.addCallback(this@PlayerActivityVLC)
-                vlcVout.attachViews()
-                
                 setEventListener { event ->
                     when (event.type) {
                         MediaPlayer.Event.Playing -> {
@@ -184,6 +183,9 @@ class PlayerActivityVLC : ComponentActivity(), IVLCVout.Callback {
                         }
                         MediaPlayer.Event.Buffering -> {
                             android.util.Log.d("PlayerActivityVLC", "Buffering: ${event.buffering}%")
+                        }
+                        MediaPlayer.Event.Vout -> {
+                            android.util.Log.d("PlayerActivityVLC", "Vout count: ${event.voutCount}")
                         }
                         MediaPlayer.Event.EncounteredError -> {
                             android.util.Log.e("PlayerActivityVLC", "Error encountered")
@@ -199,6 +201,9 @@ class PlayerActivityVLC : ComponentActivity(), IVLCVout.Callback {
                 }
             }
             
+            // Attach to VLCVideoLayout - handles surface internally
+            vlcPlayer?.attachViews(videoLayout, null, false, false)
+            
             val media = Media(libVLC, Uri.parse(ch.url)).apply {
                 setHWDecoderEnabled(true, false)
                 addOption(":network-caching=1500")
@@ -208,6 +213,8 @@ class PlayerActivityVLC : ComponentActivity(), IVLCVout.Callback {
             vlcPlayer?.media = media
             media.release()
             vlcPlayer?.play()
+            
+            android.util.Log.d("PlayerActivityVLC", "Video attached and playing")
             
         } catch (e: Exception) {
             android.util.Log.e("PlayerActivityVLC", "Error initializing player", e)
@@ -219,8 +226,7 @@ class PlayerActivityVLC : ComponentActivity(), IVLCVout.Callback {
         try {
             vlcPlayer?.apply {
                 stop()
-                vlcVout.detachViews()
-                vlcVout.removeCallback(this@PlayerActivityVLC)
+                detachViews()
                 release()
             }
             vlcPlayer = null
@@ -254,14 +260,6 @@ class PlayerActivityVLC : ComponentActivity(), IVLCVout.Callback {
         } catch (e: Exception) {
             android.util.Log.e("PlayerActivityVLC", "Error playing channel", e)
         }
-    }
-    
-    override fun onSurfacesCreated(vlcVout: IVLCVout?) {
-        android.util.Log.d("PlayerActivityVLC", "Surfaces created")
-    }
-    
-    override fun onSurfacesDestroyed(vlcVout: IVLCVout?) {
-        android.util.Log.d("PlayerActivityVLC", "Surfaces destroyed")
     }
     
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
