@@ -711,7 +711,7 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Material3Text(
-                    text = "M3U Playlist",
+                    text = "MQL TV",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
