@@ -23,7 +23,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -66,6 +68,8 @@ class PlayerActivityVLC : ComponentActivity() {
     private val showChannelList = mutableStateOf(false)
     private val currentChannelName = mutableStateOf("")
     private val selectedListIndex = mutableStateOf(0)
+    private val isBuffering = mutableStateOf(true)
+    private val bufferingPercent = mutableStateOf(0f)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -180,16 +184,53 @@ class PlayerActivityVLC : ComponentActivity() {
                 setEventListener { event ->
                     when (event.type) {
                         MediaPlayer.Event.Playing -> {
-                            android.util.Log.d("PlayerActivityVLC", "Playing")
+                            android.util.Log.d("PlayerActivityVLC", "Event: Playing")
+                            // Playing means video is running, hide buffering
+                            isBuffering.value = false
+                            bufferingPercent.value = 100f
+                        }
+                        MediaPlayer.Event.Paused -> {
+                            android.util.Log.d("PlayerActivityVLC", "Event: Paused")
                         }
                         MediaPlayer.Event.Buffering -> {
-                            android.util.Log.d("PlayerActivityVLC", "Buffering: ${event.buffering}%")
+                            val percent = event.buffering
+                            android.util.Log.d("PlayerActivityVLC", "Event: Buffering $percent%")
+                            bufferingPercent.value = percent
+                            // Only show buffering if percent is low (< 95%)
+                            // Some streams report 100% but still buffer briefly
+                            if (percent >= 95f) {
+                                isBuffering.value = false
+                            }
+                        }
+                        MediaPlayer.Event.Opening -> {
+                            android.util.Log.d("PlayerActivityVLC", "Event: Opening")
+                            isBuffering.value = true
+                            bufferingPercent.value = 0f
+                        }
+                        MediaPlayer.Event.Stopped -> {
+                            android.util.Log.d("PlayerActivityVLC", "Event: Stopped")
+                            isBuffering.value = false
+                        }
+                        MediaPlayer.Event.EndReached -> {
+                            android.util.Log.d("PlayerActivityVLC", "Event: EndReached")
+                            isBuffering.value = false
                         }
                         MediaPlayer.Event.Vout -> {
-                            android.util.Log.d("PlayerActivityVLC", "Vout count: ${event.voutCount}")
+                            android.util.Log.d("PlayerActivityVLC", "Event: Vout count=${event.voutCount}")
+                            // Video output available means playback started
+                            if (event.voutCount > 0) {
+                                isBuffering.value = false
+                            }
+                        }
+                        MediaPlayer.Event.TimeChanged -> {
+                            // TimeChanged means video is playing, definitely not buffering
+                            if (isBuffering.value) {
+                                isBuffering.value = false
+                            }
                         }
                         MediaPlayer.Event.EncounteredError -> {
-                            android.util.Log.e("PlayerActivityVLC", "Error encountered")
+                            android.util.Log.e("PlayerActivityVLC", "Event: Error")
+                            isBuffering.value = false
                             runOnUiThread {
                                 android.widget.Toast.makeText(
                                     this@PlayerActivityVLC,
@@ -240,55 +281,86 @@ class PlayerActivityVLC : ComponentActivity() {
     }
     
     private fun playChannel(ch: Channel) {
-        try {
-            android.util.Log.d("PlayerActivityVLC", "playChannel called: ${ch.name}, URL: ${ch.url}")
-            
-            // Check if libVLC is available
-            val vlc = libVLC
-            val player = vlcPlayer
-            
-            if (vlc == null || player == null) {
-                android.util.Log.e("PlayerActivityVLC", "libVLC or player is null, reinitializing...")
-                channelId = ch.id
-                initializePlayer()
-                return
-            }
-            
-            channelId = ch.id
-            currentChannelName.value = ch.name
-            
-            // Stop current playback and release old media
-            player.stop()
-            
-            // Create new media with the channel URL
-            val media = Media(vlc, Uri.parse(ch.url)).apply {
-                setHWDecoderEnabled(true, false)
-                addOption(":network-caching=1500")
-                addOption(":live-caching=1500")
-            }
-            
-            // Set media and play
-            player.media = media
-            media.release()
-            player.play()
-            
-            android.util.Log.d("PlayerActivityVLC", "Channel playback started: ${ch.name}")
-            
-            showChannelList.value = false
-            
-        } catch (e: Exception) {
-            android.util.Log.e("PlayerActivityVLC", "Error playing channel: ${e.message}", e)
-            android.widget.Toast.makeText(this, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-        }
+        android.util.Log.d("PlayerActivityVLC", "playChannel called: ${ch.name}, URL: ${ch.url}")
+        
+        // Close overlay first
+        showChannelList.value = false
+        
+        // Set buffering state
+        isBuffering.value = true
+        bufferingPercent.value = 0f
+        
+        // Update channel info
+        channelId = ch.id
+        currentChannelName.value = ch.name
+        
+        // Release current player completely and reinitialize (like from home)
+        releasePlayer()
+        
+        // Small delay then reinitialize
+        videoLayout.postDelayed({
+            initializePlayer()
+        }, 100)
+    }
+    
+    // Direct play untuk D-pad - sama seperti playChannel, full reinit
+    private fun playChannelDirect(ch: Channel) {
+        android.util.Log.d("PlayerActivityVLC", "playChannelDirect called: ${ch.name}, URL: ${ch.url}")
+        
+        // Close overlay first
+        showChannelList.value = false
+        
+        // Set buffering state
+        isBuffering.value = true
+        bufferingPercent.value = 0f
+        
+        // Update channel info
+        channelId = ch.id
+        currentChannelName.value = ch.name
+        
+        // Release current player completely and reinitialize
+        releasePlayer()
+        
+        // Small delay then reinitialize
+        videoLayout.postDelayed({
+            initializePlayer()
+        }, 100)
     }
     
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // Hanya handle ACTION_DOWN
+        val keyCode = event.keyCode
+        
+        // Untuk D-pad center/enter, kita perlu handle kedua ACTION_DOWN dan ACTION_UP
+        // untuk mencegah event diteruskan ke view lain
+        if (showChannelList.value) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, 
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER,
+                KeyEvent.KEYCODE_BUTTON_A,
+                23 -> {
+                    // Consume both DOWN and UP untuk mencegah double action
+                    if (event.action == KeyEvent.ACTION_DOWN) {
+                        val channels = ChannelRepository.getAllChannels()
+                        android.util.Log.d("PlayerActivityVLC", "OK DOWN - playing index: ${selectedListIndex.value}")
+                        if (selectedListIndex.value in channels.indices) {
+                            val selectedChannel = channels[selectedListIndex.value]
+                            android.util.Log.d("PlayerActivityVLC", "Playing channel: ${selectedChannel.name}, URL: ${selectedChannel.url}")
+                            
+                            // Call play directly here
+                            playChannelDirect(selectedChannel)
+                        }
+                    }
+                    return true // Consume event completely
+                }
+            }
+        }
+        
+        // Hanya handle ACTION_DOWN untuk tombol lain
         if (event.action != KeyEvent.ACTION_DOWN) {
             return super.dispatchKeyEvent(event)
         }
         
-        val keyCode = event.keyCode
         android.util.Log.d("PlayerActivityVLC", "dispatchKeyEvent: keyCode=$keyCode, overlay=${showChannelList.value}")
         
         val channels = ChannelRepository.getAllChannels()
@@ -306,20 +378,6 @@ class PlayerActivityVLC : ComponentActivity() {
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     if (selectedListIndex.value < channels.size - 1) {
                         selectedListIndex.value = selectedListIndex.value + 1
-                    }
-                    return true
-                }
-                KeyEvent.KEYCODE_DPAD_CENTER, 
-                KeyEvent.KEYCODE_ENTER,
-                KeyEvent.KEYCODE_NUMPAD_ENTER,
-                KeyEvent.KEYCODE_BUTTON_A,
-                23 -> {
-                    // Play selected channel
-                    android.util.Log.d("PlayerActivityVLC", "OK pressed - playing index: ${selectedListIndex.value}")
-                    if (selectedListIndex.value in channels.indices) {
-                        val selectedChannel = channels[selectedListIndex.value]
-                        android.util.Log.d("PlayerActivityVLC", "Playing: ${selectedChannel.name}")
-                        playChannel(selectedChannel)
                     }
                     return true
                 }
@@ -497,6 +555,30 @@ class PlayerActivityVLC : ComponentActivity() {
                             .weight(1f)
                             .fillMaxHeight()
                             .clickable { showChannelList.value = false }
+                    )
+                }
+            }
+        }
+        
+        // Buffering indicator
+        if (isBuffering.value) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(64.dp),
+                        color = Color.White,
+                        strokeWidth = 4.dp
+                    )
+                    Spacer(modifier = Modifier.padding(8.dp))
+                    Text(
+                        text = if (bufferingPercent.value > 0) "Buffering ${bufferingPercent.value.toInt()}%" else "Loading...",
+                        color = Color.White,
+                        fontSize = 14.sp
                     )
                 }
             }
