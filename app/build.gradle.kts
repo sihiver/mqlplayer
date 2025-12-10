@@ -17,13 +17,24 @@ android {
 
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../mqltv-release-key.jks")
+            storePassword = "mqltv2024"
+            keyAlias = "mqltv-key"
+            keyPassword = "mqltv2024"
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
