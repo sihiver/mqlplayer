@@ -155,6 +155,110 @@ object ChannelRepository {
         }
     }
     
+    suspend fun refreshPlaylistFromServer(context: Context, url: String) {
+        return withContext(Dispatchers.IO) {
+            try {
+                android.util.Log.d("ChannelRepository", "Refreshing playlist from server: $url")
+                
+                // Fetch new playlist from server
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+                
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val content = reader.readText()
+                reader.close()
+                
+                // Parse new playlist
+                val newChannels = mutableListOf<Channel>()
+                val lines = content.lines()
+                var currentName = ""
+                var currentLogo = ""
+                var currentGroup = "Imported"
+                
+                for (i in lines.indices) {
+                    val line = lines[i].trim()
+                    
+                    if (line.startsWith("#EXTINF:")) {
+                        val extinfParts = line.split(",", limit = 2)
+                        if (extinfParts.size > 1) {
+                            currentName = extinfParts[1].trim()
+                        }
+                        
+                        val logoRegex = "tvg-logo=\"([^\"]+)\"".toRegex()
+                        val logoMatch = logoRegex.find(line)
+                        currentLogo = logoMatch?.groupValues?.get(1) ?: ""
+                        
+                        val groupRegex = "group-title=\"([^\"]+)\"".toRegex()
+                        val groupMatch = groupRegex.find(line)
+                        currentGroup = groupMatch?.groupValues?.get(1) ?: "Imported"
+                    } else if (line.isNotEmpty() && !line.startsWith("#") && currentName.isNotEmpty()) {
+                        newChannels.add(
+                            Channel(
+                                id = 0,
+                                name = currentName,
+                                url = line,
+                                category = currentGroup,
+                                logo = currentLogo
+                            )
+                        )
+                        currentName = ""
+                        currentLogo = ""
+                    }
+                }
+                
+                // Compare with existing channels and update
+                val existingChannels = customChannels.toList()
+                val channelsToRemove = mutableListOf<Channel>()
+                val channelsToAdd = mutableListOf<Channel>()
+                
+                // Find channels to remove (not in new playlist)
+                for (existing in existingChannels) {
+                    val stillExists = newChannels.any { 
+                        it.name == existing.name && it.url == existing.url 
+                    }
+                    if (!stillExists) {
+                        channelsToRemove.add(existing)
+                        android.util.Log.d("ChannelRepository", "Channel removed from server: ${existing.name}")
+                    }
+                }
+                
+                // Find channels to add (new in playlist)
+                for (new in newChannels) {
+                    val alreadyExists = existingChannels.any { 
+                        it.name == new.name && it.url == new.url 
+                    }
+                    if (!alreadyExists) {
+                        channelsToAdd.add(new.copy(id = nextId++))
+                        android.util.Log.d("ChannelRepository", "New channel from server: ${new.name}")
+                    }
+                }
+                
+                // Apply changes
+                customChannels.removeAll(channelsToRemove)
+                customChannels.addAll(channelsToAdd)
+                
+                // Save to persistent storage
+                saveChannels(context)
+                
+                android.util.Log.d("ChannelRepository", "Playlist refreshed: ${channelsToRemove.size} removed, ${channelsToAdd.size} added")
+            } catch (e: Exception) {
+                android.util.Log.e("ChannelRepository", "Error refreshing playlist", e)
+            }
+        }
+    }
+    
+    fun getPlaylistUrl(context: Context): String {
+        val prefs = context.getSharedPreferences("mqltv_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("playlist_url", "") ?: ""
+    }
+    
+    fun savePlaylistUrl(context: Context, url: String) {
+        val prefs = context.getSharedPreferences("mqltv_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("playlist_url", url).apply()
+    }
+    
     fun saveChannels(context: Context) {
         val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
         val editor = prefs.edit()

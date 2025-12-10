@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -73,9 +75,42 @@ class MainActivity : ComponentActivity() {
         // Load saved channels
         ChannelRepository.loadChannels(this)
         
+        // Auto-refresh playlist on launch
+        lifecycleScope.launch {
+            try {
+                val playlistUrl = ChannelRepository.getPlaylistUrl(this@MainActivity)
+                if (playlistUrl.isNotEmpty()) {
+                    android.util.Log.d("MainActivity", "Auto-refreshing playlist from: $playlistUrl")
+                    ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Auto-refresh failed", e)
+            }
+        }
+        
         setContent {
             MQLTVTheme {
                 var selectedTab by remember { mutableStateOf(0) }
+                var isRefreshing by remember { mutableStateOf(false) }
+                
+                // Periodic refresh every 30 minutes
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        kotlinx.coroutines.delay(30 * 60 * 1000L) // 30 minutes
+                        try {
+                            val playlistUrl = ChannelRepository.getPlaylistUrl(this@MainActivity)
+                            if (playlistUrl.isNotEmpty()) {
+                                android.util.Log.d("MainActivity", "Periodic refresh from: $playlistUrl")
+                                isRefreshing = true
+                                ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
+                                isRefreshing = false
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("MainActivity", "Periodic refresh failed", e)
+                            isRefreshing = false
+                        }
+                    }
+                }
                 
                 Scaffold(
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),

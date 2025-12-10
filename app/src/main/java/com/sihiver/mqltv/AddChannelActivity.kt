@@ -343,6 +343,8 @@ fun ImportM3UScreen(
                         isLoading = true
                         try {
                             val count = if (importMethod == "url") {
+                                // Save playlist URL for auto-refresh
+                                ChannelRepository.savePlaylistUrl(context, m3uUrl)
                                 ChannelRepository.importFromM3UUrl(m3uUrl)
                             } else {
                                 ChannelRepository.importFromM3U(m3uContent)
@@ -354,6 +356,10 @@ fun ImportM3UScreen(
                                 // Force save channels immediately
                                 ChannelRepository.saveChannels(context)
                                 android.util.Log.d("AddChannelActivity", "Channels saved to SharedPreferences")
+                                
+                                if (importMethod == "url") {
+                                    android.util.Log.d("AddChannelActivity", "Playlist URL saved for auto-refresh: $m3uUrl")
+                                }
                                 
                                 // Show toast
                                 android.widget.Toast.makeText(
