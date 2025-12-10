@@ -46,6 +46,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
@@ -1010,18 +1015,59 @@ fun ChannelCardCompact(
     onFavoriteClick: () -> Unit = {},
     isFavorite: Boolean = false
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    
     Material3Card(
         onClick = { onClick(channel) },
         modifier = Modifier
             .width(120.dp)
-            .height(140.dp),
+            .height(140.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.Enter, Key.DirectionCenter, Key.NumPadEnter -> {
+                            onClick(channel)
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            }
+            .focusable(),
         shape = RoundedCornerShape(8.dp),
         colors = Material3CardDefaults.cardColors(
             containerColor = Color(0xFF2A2A2A)
-        )
+        ),
+        border = if (isFocused) BorderStroke(3.dp, Color(0xFFE50914)) else null
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Logo/Icon placeholder
+            // Logo/Icon - always show placeholder behind
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        when {
+                            channel.category.contains("sport", ignoreCase = true) -> Color(0xFF1B5E20)
+                            channel.category.contains("news", ignoreCase = true) -> Color(0xFFB71C1C)
+                            channel.category.contains("movie", ignoreCase = true) -> Color(0xFF4A148C)
+                            channel.category.contains("kids", ignoreCase = true) -> Color(0xFFFF6F00)
+                            channel.category.contains("music", ignoreCase = true) -> Color(0xFF00838F)
+                            else -> Color(0xFF1565C0)
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                // Show first letter of channel name as fallback
+                Material3Text(
+                    text = channel.name.take(2).uppercase(),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.5f)
+                )
+            }
+            
+            // Logo image on top
             if (channel.logo.isNotEmpty()) {
                 AsyncImage(
                     model = channel.logo,
@@ -1031,20 +1077,15 @@ fun ChannelCardCompact(
                         .clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop
                 )
-            } else {
+            }
+            
+            // Focus indicator overlay
+            if (isFocused) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF1565C0)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(48.dp)
-                    )
-                }
+                        .background(Color.White.copy(alpha = 0.1f))
+                )
             }
             
             // Favorite heart icon (top-left) - clickable
@@ -1064,7 +1105,7 @@ fun ChannelCardCompact(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .background(Color.Black.copy(alpha = 0.7f))
+                    .background(if (isFocused) Color(0xFFE50914).copy(alpha = 0.9f) else Color.Black.copy(alpha = 0.7f))
                     .padding(8.dp)
             ) {
                 Material3Text(
