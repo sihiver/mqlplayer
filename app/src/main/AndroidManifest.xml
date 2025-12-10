@@ -51,6 +51,14 @@
             android:launchMode="singleTop" />
         
         <activity
+            android:name=".PlayerActivityVLC"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTop" />
+        
+        <activity
             android:name=".AddChannelActivity"
             android:exported="false"
             android:label="Add Channel" />

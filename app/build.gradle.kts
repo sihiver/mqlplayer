@@ -12,8 +12,8 @@ android {
         applicationId = "com.sihiver.mqltv"
         minSdk = 21
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
 
     }
 
@@ -63,21 +63,22 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     
     // Material3 for phone UI
-    implementation("androidx.compose.material3:material3:1.2.0")
+    implementation("androidx.compose.material3:material3:1.4.0")
     implementation("androidx.compose.material:material-icons-extended:1.6.0")
     
     // ExoPlayer for IPTV streaming (1.3.1 compatible with NextLib 0.7.1)
-    implementation("androidx.media3:media3-exoplayer:1.3.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.3.1")
-    implementation("androidx.media3:media3-ui:1.3.1")
-    implementation("androidx.media3:media3-extractor:1.3.1")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.3.1")
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.8.0")
+    implementation("androidx.media3:media3-ui:1.8.0")
+    implementation("androidx.media3:media3-extractor:1.8.0")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.8.0")
     
     // NextLib FFmpeg extension for MPEG-L2 audio codec support (like M3UAndroid)
-    implementation("com.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.1")
+    // Replace 1.8.0 with the version of Media3 you are using
+    implementation("io.github.anilbeesetti:nextlib-media3ext:1.8.0-0.9.0")
     
     // OkHttp DataSource for ExoPlayer network streaming
-    implementation("androidx.media3:media3-datasource-okhttp:1.3.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.8.0")
     
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
@@ -86,7 +87,10 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     
     // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    
+    // VLC for Android - libVLC
+    implementation("org.videolan.android:libvlc-all:3.6.0")
     
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

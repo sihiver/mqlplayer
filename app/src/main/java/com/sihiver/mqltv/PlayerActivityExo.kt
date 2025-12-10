@@ -99,10 +99,10 @@ class PlayerActivityExo : ComponentActivity() {
         
         // Set thread priority for smooth playback
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY)
-        
+
         // Disable window animations for faster transitions
         window.setWindowAnimations(0)
-        
+
         // Handle back button
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -110,7 +110,7 @@ class PlayerActivityExo : ComponentActivity() {
                 finish()
             }
         })
-        
+
         // Create root frame layout
         val rootLayout = FrameLayout(this).apply {
             layoutParams = android.view.ViewGroup.LayoutParams(
@@ -118,14 +118,14 @@ class PlayerActivityExo : ComponentActivity() {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT
             )
         }
-        
+
         // Create PlayerView with optimized settings
         playerView = PlayerView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
-            
+
             // Apply aspect ratio from settings
             val aspectRatioSetting = prefs.getString("aspect_ratio", "Fit") ?: "Fit"
             resizeMode = when (aspectRatioSetting) {
@@ -135,42 +135,33 @@ class PlayerActivityExo : ComponentActivity() {
                 "4:3" -> AspectRatioFrameLayout.RESIZE_MODE_FIT
                 else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
-            
+
             // Don't show buffering indicator for smoother UX
-            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-            
-            // Use surface view for better performance on most devices
+            setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+
+            // Use SurfaceView for better hardware decoding on TV
             setUseController(false)
             
-            // Apply layer type based on acceleration settings
-            setLayerType(
-                when (accelerationSetting) {
-                    "SW (Software)" -> android.view.View.LAYER_TYPE_SOFTWARE
-                    else -> android.view.View.LAYER_TYPE_HARDWARE
-                },
-                null
-            )
-            
+            // Keep default layer type - let Android handle it
+            // Don't override layer type for SurfaceView
+
             // Optimize view for TV/low-end devices
             keepScreenOn = true
-            
+
             // Hide default controller, we'll use custom overlay
             useController = false
-            
+
             // Disable shutter animation for faster rendering
             setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-            
-            // Force use TextureView for SW mode, SurfaceView for HW
-            setUseTextureView(accelerationSetting == "SW (Software)")
-            
+
             // Handle click to show channel list
             setOnClickListener {
                 showChannelList.value = !showChannelList.value
             }
         }
-        
+
         rootLayout.addView(playerView)
-        
+
         // Create channel list overlay (Compose)
         overlayComposeView = ComposeView(this).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -181,11 +172,11 @@ class PlayerActivityExo : ComponentActivity() {
                 ChannelListOverlay()
             }
         }
-        
+
         rootLayout.addView(overlayComposeView)
-        
+
         setContentView(rootLayout)
-        
+
         // Hide system UI for immersive experience
         try {
             @Suppress("DEPRECATION")
@@ -200,105 +191,69 @@ class PlayerActivityExo : ComponentActivity() {
         } catch (e: Exception) {
             android.util.Log.w("PlayerActivityExo", "Failed to hide system UI: ${e.message}")
         }
-        
+
         // Get channel ID from intent
         channelId = intent.getIntExtra("CHANNEL_ID", -1)
         android.util.Log.d("PlayerActivityExo", "Received channel ID: $channelId")
     }
-    
+
     override fun onStart() {
         super.onStart()
         initializePlayer()
     }
-    
+
     override fun onStop() {
         super.onStop()
         releasePlayer()
     }
-    
+
     private fun initializePlayer() {
         try {
             // Load channels first
             ChannelRepository.loadChannels(this)
-            
+
             // Get channel from repository
             val channel = ChannelRepository.getChannelById(channelId)
-            
+
             if (channel == null) {
                 android.util.Log.e("PlayerActivityExo", "Channel not found with ID: $channelId")
                 android.widget.Toast.makeText(this, "Channel not found", android.widget.Toast.LENGTH_SHORT).show()
                 finish()
                 return
             }
-            
+
             android.util.Log.d("PlayerActivityExo", "Playing channel: ${channel.name}, URL: ${channel.url}")
-            
-            // Create OkHttp data source factory with optimized settings
-            val okHttpClient = OkHttpClient.Builder()
-                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-            val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            
-            // Create NextLib FFmpeg renderers factory for MPEG-L2 support
+
+            // Use default data source
+            val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this)
+
+            // Use NextRenderersFactory for MPEG-L2 audio support
+            // EXTENSION_RENDERER_MODE_PREFER = FFmpeg preferred for audio, but MediaCodec for video
             val renderersFactory = NextRenderersFactory(this).apply {
                 setEnableDecoderFallback(true)
+                // PREFER mode: FFmpeg untuk audio (MPEG-L2), tapi MediaCodec hardware untuk video
                 setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-                // Force simple video decoder for low-end devices
-                forceEnableAudioOffload(false)
             }
-            
+
             // Create media source factory
             val mediaSourceFactory = DefaultMediaSourceFactory(this)
                 .setDataSourceFactory(dataSourceFactory)
-            
-            // Optimized LoadControl for low-end devices - more aggressive
-            val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                    8000,   // Min buffer: 8s (more aggressive)
-                    16000,  // Max buffer: 16s (more aggressive)
-                    1000,   // Buffer for playback: 1s (more aggressive)
-                    2000    // Buffer for playback after rebuffer: 2s (more aggressive)
-                )
-                .setTargetBufferBytes(-1) // Use default
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .setBackBuffer(3000, false) // Keep 3s back buffer, don't retain
-                .build()
-            
-            // Create TrackSelector with constraints for low-end devices
-            val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this).apply {
-                parameters = buildUponParameters()
-                    .setMaxVideoSizeSd() // Limit to SD quality
-                    .setMaxVideoBitrate(2000000) // Max 2Mbps
-                    .setForceHighestSupportedBitrate(false)
-                    .setExceedVideoConstraintsIfNecessary(true)
-                    .setExceedRendererCapabilitiesIfNecessary(false)
-                    .setTunnelingEnabled(false)
-                    .build()
-            }
-            
-            // Create ExoPlayer with optimized settings
+
+            // Simple LoadControl - let ExoPlayer manage buffers
+            val loadControl = androidx.media3.exoplayer.DefaultLoadControl()
+
+            // Create TrackSelector - use defaults
+            val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this)
+
+            // Create ExoPlayer
             exoPlayer = ExoPlayer.Builder(this)
                 .setRenderersFactory(renderersFactory)
                 .setMediaSourceFactory(mediaSourceFactory)
                 .setLoadControl(loadControl)
                 .setTrackSelector(trackSelector)
-                .setSeekBackIncrementMs(5000)
-                .setSeekForwardIncrementMs(5000)
-                .setUsePlatformDiagnostics(false) // Reduce overhead
-                .setPauseAtEndOfMediaItems(false)
                 .build()
                 .apply {
                     playWhenReady = true
-                    
-                    // Optimize video scaling for low-end devices
-                    videoScalingMode = androidx.media3.common.C.VIDEO_SCALING_MODE_SCALE_TO_FIT
-                    
-                    // Skip silence for smoother playback
-                    skipSilenceEnabled = false
-                    
-                    // Disable video frame metadata for better performance
-                    videoFrameMetadataListener = null
                     
                     addListener(object : Player.Listener {
                         override fun onPlaybackStateChanged(playbackState: Int) {

@@ -174,7 +174,15 @@ class MainActivity : ComponentActivity() {
                                         // Add to recently watched before playing
                                         ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
                                         
-                                        val intent = Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                        // Check which player to use from settings
+                                        val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
+                                        val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+                                        
+                                        val intent = if (playerType == "VLC") {
+                                            Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                        } else {
+                                            Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                        }
                                         intent.putExtra("CHANNEL_ID", channel.id)
                                         startActivity(intent)
                                     } catch (e: Exception) {
@@ -232,14 +240,17 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
     var showOrientationDialog by remember { mutableStateOf(false) }
     var showAccelerationDialog by remember { mutableStateOf(false) }
     var showAspectRatioDialog by remember { mutableStateOf(false) }
+    var showPlayerDialog by remember { mutableStateOf(false) }
     
     val orientationOptions = listOf("Auto", "Portrait", "Landscape", "Sensor Landscape")
     val accelerationOptions = listOf("HW (Hardware)", "HW+ (Hardware+)", "SW (Software)")
     val aspectRatioOptions = listOf("Fit", "Fill", "Zoom", "16:9", "4:3")
+    val playerOptions = listOf("ExoPlayer", "VLC")
     
     val currentOrientation = prefs.getString("orientation", "Sensor Landscape") ?: "Sensor Landscape"
     val currentAcceleration = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
     val currentAspectRatio = prefs.getString("aspect_ratio", "Fit") ?: "Fit"
+    val currentPlayer = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
     
     Column(
         modifier = Modifier
@@ -265,6 +276,35 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
             color = Color(0xFF00BCD4),
             modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
         )
+        
+        // Player Type Setting
+        Material3Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showPlayerDialog = true },
+            colors = Material3CardDefaults.cardColors(
+                containerColor = Color(0xFF1E1E1E)
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Material3Text(
+                    text = "Player",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+                Material3Text(
+                    text = currentPlayer,
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
         
         // Orientation Setting
         Material3Card(
@@ -522,6 +562,58 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
             },
             confirmButton = {
                 TextButton(onClick = { showAspectRatioDialog = false }) {
+                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                }
+            },
+            containerColor = Color(0xFF1E1E1E)
+        )
+    }
+    
+    // Player Selection Dialog
+    if (showPlayerDialog) {
+        AlertDialog(
+            onDismissRequest = { showPlayerDialog = false },
+            title = { Material3Text("Pilih Player", color = Color.White) },
+            text = {
+                Column {
+                    playerOptions.forEach { option ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    prefs.edit().putString("player_type", option).apply()
+                                    showPlayerDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = option == currentPlayer,
+                                onClick = {
+                                    prefs.edit().putString("player_type", option).apply()
+                                    showPlayerDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFF00BCD4)
+                                )
+                            )
+                            Column(modifier = Modifier.padding(start = 8.dp)) {
+                                Material3Text(
+                                    text = option,
+                                    color = Color.White
+                                )
+                                Material3Text(
+                                    text = if (option == "VLC") "Lebih stabil untuk 1080p" else "Default player",
+                                    color = Color.Gray,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPlayerDialog = false }) {
                     Material3Text("Tutup", color = Color(0xFF00BCD4))
                 }
             },
