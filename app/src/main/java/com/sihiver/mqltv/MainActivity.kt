@@ -33,6 +33,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -220,18 +226,140 @@ fun CenterMessage(message: String) {
 
 @Composable
 fun SettingsScreen(onClearPlaylist: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("video_settings", Context.MODE_PRIVATE)
+    
+    var showOrientationDialog by remember { mutableStateOf(false) }
+    var showAccelerationDialog by remember { mutableStateOf(false) }
+    var showAspectRatioDialog by remember { mutableStateOf(false) }
+    
+    val orientationOptions = listOf("Auto", "Portrait", "Landscape", "Sensor Landscape")
+    val accelerationOptions = listOf("HW (Hardware)", "HW+ (Hardware+)", "SW (Software)")
+    val aspectRatioOptions = listOf("Fit", "Fill", "Zoom", "16:9", "4:3")
+    
+    val currentOrientation = prefs.getString("orientation", "Sensor Landscape") ?: "Sensor Landscape"
+    val currentAcceleration = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
+    val currentAspectRatio = prefs.getString("aspect_ratio", "Fit") ?: "Fit"
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF000000))
             .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Material3Text(
             text = "Settings",
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White,
-            modifier = Modifier.padding(bottom = 24.dp)
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        
+        // Video Preferences Section
+        Material3Text(
+            text = "Video Preferences",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF00BCD4),
+            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
+        )
+        
+        // Orientation Setting
+        Material3Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showOrientationDialog = true },
+            colors = Material3CardDefaults.cardColors(
+                containerColor = Color(0xFF1E1E1E)
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Material3Text(
+                    text = "Orientasi Layar",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+                Material3Text(
+                    text = currentOrientation,
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+        
+        // Acceleration Mode Setting
+        Material3Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showAccelerationDialog = true },
+            colors = Material3CardDefaults.cardColors(
+                containerColor = Color(0xFF1E1E1E)
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Material3Text(
+                    text = "Mode Akselerasi",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+                Material3Text(
+                    text = currentAcceleration,
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+        
+        // Aspect Ratio Setting
+        Material3Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showAspectRatioDialog = true },
+            colors = Material3CardDefaults.cardColors(
+                containerColor = Color(0xFF1E1E1E)
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Material3Text(
+                    text = "Rasio Aspek",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+                Material3Text(
+                    text = currentAspectRatio,
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+        
+        // Playlist Section
+        Material3Text(
+            text = "Playlist",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF00BCD4),
+            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
         )
         
         Material3Card(
@@ -250,7 +378,7 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
             ) {
                 Material3Text(
                     text = "Clear Playlist",
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     color = Color.White,
                     modifier = Modifier.weight(1f)
                 )
@@ -261,6 +389,144 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
                 )
             }
         }
+    }
+    
+    // Orientation Dialog
+    if (showOrientationDialog) {
+        AlertDialog(
+            onDismissRequest = { showOrientationDialog = false },
+            title = { Material3Text("Pilih Orientasi Layar", color = Color.White) },
+            text = {
+                Column {
+                    orientationOptions.forEach { option ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    prefs.edit().putString("orientation", option).apply()
+                                    showOrientationDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = option == currentOrientation,
+                                onClick = {
+                                    prefs.edit().putString("orientation", option).apply()
+                                    showOrientationDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFF00BCD4)
+                                )
+                            )
+                            Material3Text(
+                                text = option,
+                                color = Color.White,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showOrientationDialog = false }) {
+                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                }
+            },
+            containerColor = Color(0xFF1E1E1E)
+        )
+    }
+    
+    // Acceleration Dialog
+    if (showAccelerationDialog) {
+        AlertDialog(
+            onDismissRequest = { showAccelerationDialog = false },
+            title = { Material3Text("Pilih Mode Akselerasi", color = Color.White) },
+            text = {
+                Column {
+                    accelerationOptions.forEach { option ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    prefs.edit().putString("acceleration", option).apply()
+                                    showAccelerationDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = option == currentAcceleration,
+                                onClick = {
+                                    prefs.edit().putString("acceleration", option).apply()
+                                    showAccelerationDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFF00BCD4)
+                                )
+                            )
+                            Material3Text(
+                                text = option,
+                                color = Color.White,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAccelerationDialog = false }) {
+                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                }
+            },
+            containerColor = Color(0xFF1E1E1E)
+        )
+    }
+    
+    // Aspect Ratio Dialog
+    if (showAspectRatioDialog) {
+        AlertDialog(
+            onDismissRequest = { showAspectRatioDialog = false },
+            title = { Material3Text("Pilih Rasio Aspek", color = Color.White) },
+            text = {
+                Column {
+                    aspectRatioOptions.forEach { option ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    prefs.edit().putString("aspect_ratio", option).apply()
+                                    showAspectRatioDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = option == currentAspectRatio,
+                                onClick = {
+                                    prefs.edit().putString("aspect_ratio", option).apply()
+                                    showAspectRatioDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFF00BCD4)
+                                )
+                            )
+                            Material3Text(
+                                text = option,
+                                color = Color.White,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAspectRatioDialog = false }) {
+                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                }
+            },
+            containerColor = Color(0xFF1E1E1E)
+        )
     }
 }
 

@@ -22,6 +22,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MQLTV"
         android:usesCleartextTraffic="true"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
         android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name=".MainActivity"
@@ -43,7 +45,10 @@
         <activity
             android:name=".PlayerActivityExo"
             android:exported="false"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
+            android:hardwareAccelerated="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTop" />
         
         <activity
             android:name=".AddChannelActivity"
