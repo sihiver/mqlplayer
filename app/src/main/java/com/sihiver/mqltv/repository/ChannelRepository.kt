@@ -81,6 +81,10 @@ object ChannelRepository {
         return getAllChannels().map { it.category }.distinct().sorted()
     }
     
+    fun getAllCategories(): List<String> {
+        return getCategories().filter { it.isNotEmpty() }
+    }
+    
     suspend fun importFromM3U(m3uContent: String): Int {
         return withContext(Dispatchers.IO) {
             var count = 0

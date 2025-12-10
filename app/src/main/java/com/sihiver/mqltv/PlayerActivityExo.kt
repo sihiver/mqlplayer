@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,6 +52,8 @@ class PlayerActivityExo : ComponentActivity() {
     private var overlayComposeView: ComposeView? = null
     private var showChannelList = mutableStateOf(false)
     private var currentChannelIndex = mutableStateOf(0)
+    private var showCategoryView = mutableStateOf(false)
+    private var selectedCategory = mutableStateOf<String?>(null)
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -302,8 +305,183 @@ class PlayerActivityExo : ComponentActivity() {
         
         if (!isVisible) return
         
-        val channels = remember { ChannelRepository.getAllChannels() }
-        val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentChannelIndex.value)
+        val showCategories by showCategoryView
+        val category by selectedCategory
+        
+        if (showCategories) {
+            CategoryListView()
+        } else {
+            ChannelListView(category)
+        }
+    }
+    
+    @Composable
+    private fun CategoryListView() {
+        val categories = remember { ChannelRepository.getAllCategories() }
+        
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.7f))
+                .clickable { showChannelList.value = false }
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(400.dp)
+                    .align(Alignment.CenterStart)
+                    .clickable(enabled = false) { },
+                color = Color(0xFF1E1E1E),
+                shape = RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF2196F3))
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Pilih Category",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Row {
+                            IconButton(onClick = { showCategoryView.value = false }) {
+                                Icon(
+                                    imageVector = Icons.Default.List,
+                                    contentDescription = "Back to Channels",
+                                    tint = Color.White
+                                )
+                            }
+                            IconButton(onClick = { showChannelList.value = false }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = Color.White
+                                )
+                            }
+                        }
+                    }
+                    
+                    // "Semua" option
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp)
+                            .clickable {
+                                selectedCategory.value = null
+                                showCategoryView.value = false
+                            },
+                        color = Color(0xFF2E2E2E),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "📺",
+                                fontSize = 24.sp,
+                                modifier = Modifier.padding(end = 12.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "Semua Channel",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "${ChannelRepository.getAllChannels().size} channels",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+                    
+                    // Category list
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(8.dp)
+                    ) {
+                        items(categories.size) { index ->
+                            val category = categories[index]
+                            val channelCount = ChannelRepository.getChannelsByCategory(category).size
+                            
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable {
+                                        // Show channels from this category
+                                        selectedCategory.value = category
+                                        showCategoryView.value = false
+                                    },
+                                color = Color(0xFF2E2E2E),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "📁",
+                                        fontSize = 24.sp,
+                                        modifier = Modifier.padding(end = 12.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = category,
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "$channelCount channels",
+                                            fontSize = 14.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                    Text(
+                                        text = "›",
+                                        fontSize = 28.sp,
+                                        color = Color(0xFF2196F3),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    @Composable
+    private fun ChannelListView(filterCategory: String?) {
+        val allChannels = remember { ChannelRepository.getAllChannels() }
+        val channels = remember(filterCategory) {
+            if (filterCategory != null) {
+                ChannelRepository.getChannelsByCategory(filterCategory)
+            } else {
+                allChannels
+            }
+        }
+        
+        val currentIndex = channels.indexOfFirst { it.id == channelId }.coerceAtLeast(0)
+        val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentIndex)
         
         Box(
             modifier = Modifier
@@ -332,18 +510,53 @@ class PlayerActivityExo : ComponentActivity() {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Semua Channel",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        IconButton(onClick = { showChannelList.value = false }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = Color.White
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = filterCategory ?: "Semua Channel",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
                             )
+                            Text(
+                                text = "${channels.size} channels",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.8f)
+                            )
+                        }
+                        Row {
+                            if (filterCategory != null) {
+                                IconButton(onClick = { 
+                                    selectedCategory.value = null
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.List,
+                                        contentDescription = "All Channels",
+                                        tint = Color.White
+                                    )
+                                }
+                            }
+                            Button(
+                                onClick = { showCategoryView.value = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color.White.copy(alpha = 0.2f)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Cari",
+                                    fontSize = 14.sp,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(onClick = { showChannelList.value = false }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = Color.White
+                                )
+                            }
                         }
                     }
                     
