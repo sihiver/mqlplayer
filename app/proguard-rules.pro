@@ -19,3 +19,19 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# --- VLC / LibVLC (org.videolan.android:libvlc-all) ---
+# Release build uses R8; LibVLC relies on JNI + reflection. Keep aggressively to avoid blank player in release.
+-dontwarn org.videolan.**
+-keep class org.videolan.** { *; }
+
+# Keep native methods
+-keepclasseswithmembernames class * {
+	native <methods>;
+}
+
+# Keep LibVLC entry points explicitly
+-keep class org.videolan.libvlc.LibVLC { *; }
+-keep class org.videolan.libvlc.Media { *; }
+-keep class org.videolan.libvlc.MediaPlayer { *; }
+-keep class org.videolan.libvlc.util.VLCVideoLayout { *; }
