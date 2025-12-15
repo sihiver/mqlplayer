@@ -545,6 +545,7 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF000000))
+            .statusBarsPadding()
             .padding(24.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
