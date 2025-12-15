@@ -71,6 +71,7 @@ import androidx.compose.material3.Card as Material3Card
 import androidx.compose.material3.CardDefaults as Material3CardDefaults
 import androidx.compose.material3.Text as Material3Text
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
@@ -1346,6 +1347,9 @@ fun FullChannelListScreen(
 
 @Composable
 fun ChannelListItem(channel: Channel, onClick: (Channel) -> Unit) {
+    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val context = LocalContext.current
+
     Material3Card(
         onClick = { onClick(channel) },
         modifier = Modifier.fillMaxWidth(),
@@ -1362,7 +1366,11 @@ fun ChannelListItem(channel: Channel, onClick: (Channel) -> Unit) {
             // Logo or icon
             if (channel.logo.isNotEmpty()) {
                 AsyncImage(
-                    model = channel.logo,
+                    model = ImageRequest.Builder(context)
+                        .data(channel.logo)
+                        .crossfade(true)
+                        .allowHardware(!isTv)
+                        .build(),
                     contentDescription = channel.name,
                     modifier = Modifier
                         .size(60.dp)
@@ -1426,6 +1434,7 @@ fun ChannelCardCompact(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val context = LocalContext.current
     val cardWidth = if (isTv) 180.dp else 120.dp
     val cardHeight = if (isTv) 200.dp else 140.dp
     
@@ -1482,7 +1491,11 @@ fun ChannelCardCompact(
             // Logo image on top
             if (channel.logo.isNotEmpty()) {
                 AsyncImage(
-                    model = channel.logo,
+                    model = ImageRequest.Builder(context)
+                        .data(channel.logo)
+                        .crossfade(true)
+                        .allowHardware(!isTv)
+                        .build(),
                     contentDescription = channel.name,
                     modifier = Modifier
                         .fillMaxSize()
@@ -1588,13 +1601,20 @@ fun ChannelCard(
 
 @Composable
 fun ChannelCardContent(channel: Channel) {
+    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val context = LocalContext.current
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
         // Channel Logo/Thumbnail
         if (channel.logo.isNotEmpty()) {
             AsyncImage(
-                model = channel.logo,
+                model = ImageRequest.Builder(context)
+                    .data(channel.logo)
+                    .crossfade(true)
+                    .allowHardware(!isTv)
+                    .build(),
                 contentDescription = channel.name,
                 modifier = Modifier
                     .fillMaxSize()
