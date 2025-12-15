@@ -489,6 +489,8 @@ class PlayerActivityExo : ComponentActivity() {
     @Composable
     private fun CategoryListView() {
         val categories = remember { ChannelRepository.getAllCategories() }
+        fun displayCategoryLabel(category: String): String =
+            if (category.trim().equals("event", ignoreCase = true)) "EVENTS" else category
         
         Box(
             modifier = Modifier
@@ -614,7 +616,7 @@ class PlayerActivityExo : ComponentActivity() {
                                     )
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = category,
+                                            text = displayCategoryLabel(category),
                                             fontSize = 18.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White
@@ -643,6 +645,11 @@ class PlayerActivityExo : ComponentActivity() {
     @Composable
     private fun ChannelListView(filterCategory: String?) {
         val allChannels = remember { ChannelRepository.getAllChannels() }
+        fun displayCategoryLabel(category: String?): String = when {
+            category == null -> "Semua Channel"
+            category.trim().equals("event", ignoreCase = true) -> "EVENTS"
+            else -> category
+        }
         val channels = remember(filterCategory) {
             if (filterCategory != null) {
                 ChannelRepository.getChannelsByCategory(filterCategory)
@@ -683,7 +690,7 @@ class PlayerActivityExo : ComponentActivity() {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = filterCategory ?: "Semua Channel",
+                                text = displayCategoryLabel(filterCategory),
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White

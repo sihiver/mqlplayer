@@ -954,7 +954,7 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
             ChannelRepository.getChannelsByCategory(category)
         }
         FullChannelListScreen(
-            title = category,
+            title = if (category.trim().equals("event", ignoreCase = true)) "EVENTS" else category,
             channels = categoryChannels,
             onChannelClick = onChannelClick,
             onBack = { showAllCategory = null }
@@ -1134,7 +1134,7 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Material3Text(
-                            text = category,
+                            text = if (category.trim().equals("event", ignoreCase = true)) "EVENTS" else category,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
