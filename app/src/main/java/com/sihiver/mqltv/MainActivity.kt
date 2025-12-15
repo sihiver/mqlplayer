@@ -191,7 +191,26 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             )
-                            1 -> CenterMessage("Movie - Coming Soon")
+                            1 -> MovieChannelsScreen(
+                                onChannelClick = { channel ->
+                                    try {
+                                        ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
+
+                                        val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
+                                        val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+
+                                        val intent = if (playerType == "VLC") {
+                                            Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                        } else {
+                                            Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                        }
+                                        intent.putExtra("CHANNEL_ID", channel.id)
+                                        startActivity(intent)
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
+                                    }
+                                }
+                            )
                             3 -> CenterMessage("Series - Coming Soon")
                             4 -> SettingsScreen(
                                 onClearPlaylist = {
@@ -877,7 +896,7 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     }
     
     val categories = remember(channels) {
-        ChannelRepository.getAllCategories()
+        ChannelRepository.getAllCategories().filterNot { it.contains("movie", ignoreCase = true) }
     }
     
     val favorites = remember(refreshKey) {
@@ -1134,6 +1153,105 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                             initialFocusRequester.requestFocus()
                             initialFocusRequested = true
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
+    val context = LocalContext.current
+    var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
+    var refreshKey by remember { mutableStateOf(0) }
+    var showAll by remember { mutableStateOf(false) }
+
+    // Refresh channels
+    LaunchedEffect(refreshKey) {
+        ChannelRepository.loadChannels(context)
+        ChannelRepository.loadRecentlyWatched(context)
+        ChannelRepository.loadFavorites(context)
+        channels = ChannelRepository.getAllChannels()
+    }
+
+    val movieChannels = remember(channels) {
+        channels.filter { it.category.contains("movie", ignoreCase = true) }
+    }
+
+    if (showAll) {
+        FullChannelListScreen(
+            title = "Movie",
+            channels = movieChannels,
+            onChannelClick = onChannelClick,
+            onBack = { showAll = false }
+        )
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF000000))
+            .statusBarsPadding()
+    ) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Material3Text(
+                    text = "Movie",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                if (movieChannels.isNotEmpty()) {
+                    TextButton(onClick = { showAll = true }) {
+                        Material3Text(
+                            text = "See all",
+                            fontSize = 14.sp,
+                            color = Color(0xFF2196F3)
+                        )
+                    }
+                }
+            }
+        }
+
+        if (movieChannels.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Material3Text(
+                        text = "Tidak ada channel Movie",
+                        color = Color.Gray,
+                        fontSize = 16.sp
+                    )
+                }
+            }
+        } else {
+            item {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(movieChannels.take(20)) { channel ->
+                        ChannelCardCompact(
+                            channel = channel,
+                            onClick = onChannelClick,
+                            onFavoriteClick = {
+                                ChannelRepository.toggleFavorite(context, channel.id)
+                                refreshKey++
+                            },
+                            isFavorite = ChannelRepository.isFavorite(channel.id)
+                        )
                     }
                 }
             }
