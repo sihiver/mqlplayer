@@ -9,9 +9,11 @@ import androidx.activity.compose.BackHandler
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -72,6 +74,8 @@ import coil.compose.AsyncImage
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalTvMaterial3Api::class)
@@ -106,6 +110,7 @@ class MainActivity : ComponentActivity() {
                 var selectedTab by remember { mutableStateOf(0) }
                 var isRefreshing by remember { mutableStateOf(false) }
                 var showExitDialog by remember { mutableStateOf(false) }
+                val isTvDevice = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
                 BackHandler(enabled = !showExitDialog) {
                     showExitDialog = true
@@ -157,53 +162,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 
-                Scaffold(
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                    bottomBar = {
-                        NavigationBar(
-                            containerColor = Color(0xFF1A1A1A),
-                            contentColor = Color.White
-                        ) {
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Live", tint = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray) },
-                                label = { Material3Text("Live", color = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray) },
-                                selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Movie, contentDescription = "Movie", tint = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
-                                label = { Material3Text("Movie", color = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
-                                selected = selectedTab == 1,
-                                onClick = { selectedTab = 1 }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFFE50914)) },
-                                label = { },
-                                selected = false,
-                                onClick = {
-                                    val intent = Intent(this@MainActivity, AddChannelActivity::class.java)
-                                    startActivity(intent)
-                                }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Search, contentDescription = "Series", tint = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
-                                label = { Material3Text("Series", color = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
-                                selected = selectedTab == 3,
-                                onClick = { selectedTab = 3 }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Settings, contentDescription = "Settings", tint = if (selectedTab == 4) Color(0xFFE50914) else Color.Gray) },
-                                label = { Material3Text("Settings", color = if (selectedTab == 4) Color(0xFFE50914) else Color.Gray) },
-                                selected = selectedTab == 4,
-                                onClick = { selectedTab = 4 }
-                            )
-                        }
-                    }
-                ) { paddingValues ->
+                val content: @Composable () -> Unit = {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(paddingValues)
                             .background(Color(0xFF000000))
                     ) {
                         when (selectedTab) {
@@ -212,11 +174,11 @@ class MainActivity : ComponentActivity() {
                                     try {
                                         // Add to recently watched before playing
                                         ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
-                                        
+
                                         // Check which player to use from settings
                                         val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
                                         val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
-                                        
+
                                         val intent = if (playerType == "VLC") {
                                             Intent(this@MainActivity, PlayerActivityVLC::class.java)
                                         } else {
@@ -241,6 +203,226 @@ class MainActivity : ComponentActivity() {
                                     ).show()
                                 }
                             )
+                        }
+                    }
+                }
+
+                if (isTvDevice) {
+                    // TV: menu pindah ke kiri (kecil saat awal, lebar saat difokuskan)
+                    val scope = rememberCoroutineScope()
+                    var sidebarExpanded by remember { mutableStateOf(false) }
+                    var collapseJob by remember { mutableStateOf<Job?>(null) }
+                    val sidebarWidth by animateDpAsState(
+                        targetValue = if (sidebarExpanded) 220.dp else 72.dp,
+                        label = "tvSidebarWidth"
+                    )
+
+                    fun requestExpand() {
+                        collapseJob?.cancel()
+                        sidebarExpanded = true
+                    }
+
+                    fun requestCollapseLater() {
+                        collapseJob?.cancel()
+                        collapseJob = scope.launch {
+                            delay(250)
+                            sidebarExpanded = false
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF000000))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(sidebarWidth)
+                                .background(Color(0xFF1A1A1A))
+                                .padding(vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            @Composable
+                            fun TvMenuItem(
+                                index: Int,
+                                label: String,
+                                icon: @Composable () -> Unit,
+                                selected: Boolean,
+                                onClick: () -> Unit
+                            ) {
+                                var focused by remember { mutableStateOf(false) }
+                                Material3Card(
+                                    onClick = onClick,
+                                    modifier = Modifier
+                                        .padding(horizontal = 10.dp)
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .onFocusChanged {
+                                            focused = it.isFocused
+                                            if (it.isFocused) requestExpand() else requestCollapseLater()
+                                        }
+                                        .focusable(),
+                                    colors = Material3CardDefaults.cardColors(
+                                        containerColor = when {
+                                            focused -> Color(0xFF2A2A2A)
+                                            selected -> Color(0xFF222222)
+                                            else -> Color(0xFF1A1A1A)
+                                        }
+                                    ),
+                                    border = if (focused) BorderStroke(2.dp, Color(0xFFE50914)) else null,
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        icon()
+                                        if (sidebarExpanded) {
+                                            Material3Text(
+                                                text = label,
+                                                color = if (selected || focused) Color.White else Color.Gray,
+                                                fontSize = 14.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            TvMenuItem(
+                                index = 0,
+                                label = "Live",
+                                icon = {
+                                    Icon(
+                                        Icons.Default.PlayArrow,
+                                        contentDescription = "Live",
+                                        tint = if (selectedTab == 0) Color(0xFFE50914) else Color.White
+                                    )
+                                },
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 }
+                            )
+                            TvMenuItem(
+                                index = 1,
+                                label = "Movie",
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Movie,
+                                        contentDescription = "Movie",
+                                        tint = if (selectedTab == 1) Color(0xFFE50914) else Color.White
+                                    )
+                                },
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 }
+                            )
+                            TvMenuItem(
+                                index = 2,
+                                label = "Add",
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = "Add",
+                                        tint = Color(0xFFE50914)
+                                    )
+                                },
+                                selected = false,
+                                onClick = {
+                                    val intent = Intent(this@MainActivity, AddChannelActivity::class.java)
+                                    startActivity(intent)
+                                }
+                            )
+                            TvMenuItem(
+                                index = 3,
+                                label = "Series",
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Search,
+                                        contentDescription = "Series",
+                                        tint = if (selectedTab == 3) Color(0xFFE50914) else Color.White
+                                    )
+                                },
+                                selected = selectedTab == 3,
+                                onClick = { selectedTab = 3 }
+                            )
+                            TvMenuItem(
+                                index = 4,
+                                label = "Settings",
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Settings,
+                                        contentDescription = "Settings",
+                                        tint = if (selectedTab == 4) Color(0xFFE50914) else Color.White
+                                    )
+                                },
+                                selected = selectedTab == 4,
+                                onClick = { selectedTab = 4 }
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(1f)
+                        ) {
+                            content()
+                        }
+                    }
+                } else {
+                    // Phone/Tablet: menu tetap di bawah
+                    Scaffold(
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                        bottomBar = {
+                            NavigationBar(
+                                containerColor = Color(0xFF1A1A1A),
+                                contentColor = Color.White
+                            ) {
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Live", tint = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray) },
+                                    label = { Material3Text("Live", color = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray) },
+                                    selected = selectedTab == 0,
+                                    onClick = { selectedTab = 0 }
+                                )
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.Movie, contentDescription = "Movie", tint = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
+                                    label = { Material3Text("Movie", color = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
+                                    selected = selectedTab == 1,
+                                    onClick = { selectedTab = 1 }
+                                )
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFFE50914)) },
+                                    label = { },
+                                    selected = false,
+                                    onClick = {
+                                        val intent = Intent(this@MainActivity, AddChannelActivity::class.java)
+                                        startActivity(intent)
+                                    }
+                                )
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.Search, contentDescription = "Series", tint = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
+                                    label = { Material3Text("Series", color = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
+                                    selected = selectedTab == 3,
+                                    onClick = { selectedTab = 3 }
+                                )
+                                NavigationBarItem(
+                                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings", tint = if (selectedTab == 4) Color(0xFFE50914) else Color.Gray) },
+                                    label = { Material3Text("Settings", color = if (selectedTab == 4) Color(0xFFE50914) else Color.Gray) },
+                                    selected = selectedTab == 4,
+                                    onClick = { selectedTab = 4 }
+                                )
+                            }
+                        }
+                    ) { paddingValues ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(paddingValues)
+                        ) {
+                            content()
                         }
                     }
                 }
