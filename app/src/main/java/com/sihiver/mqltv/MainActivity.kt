@@ -491,6 +491,40 @@ fun CenterMessage(message: String) {
 fun SettingsScreen(onClearPlaylist: () -> Unit) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("video_settings", Context.MODE_PRIVATE)
+
+    @Composable
+    fun FocusableSettingsCard(
+        onActivate: () -> Unit,
+        modifier: Modifier = Modifier,
+        content: @Composable () -> Unit
+    ) {
+        var focused by remember { mutableStateOf(false) }
+        Material3Card(
+            onClick = onActivate,
+            modifier = modifier
+                .fillMaxWidth()
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyUp &&
+                        (event.key == Key.DirectionCenter ||
+                            event.key == Key.Enter ||
+                            event.key == Key.NumPadEnter)
+                    ) {
+                        onActivate()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                .onFocusChanged { focused = it.isFocused }
+                .focusable(),
+            colors = Material3CardDefaults.cardColors(
+                containerColor = if (focused) Color(0xFF2A2A2A) else Color(0xFF1E1E1E)
+            ),
+            border = if (focused) BorderStroke(2.dp, Color(0xFFE50914)) else null
+        ) {
+            content()
+        }
+    }
     
     var showOrientationDialog by remember { mutableStateOf(false) }
     var showAccelerationDialog by remember { mutableStateOf(false) }
@@ -533,13 +567,8 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
         )
         
         // Player Type Setting
-        Material3Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showPlayerDialog = true },
-            colors = Material3CardDefaults.cardColors(
-                containerColor = Color(0xFF1E1E1E)
-            )
+        FocusableSettingsCard(
+            onActivate = { showPlayerDialog = true }
         ) {
             Column(
                 modifier = Modifier
@@ -562,13 +591,8 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
         }
         
         // Orientation Setting
-        Material3Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showOrientationDialog = true },
-            colors = Material3CardDefaults.cardColors(
-                containerColor = Color(0xFF1E1E1E)
-            )
+        FocusableSettingsCard(
+            onActivate = { showOrientationDialog = true }
         ) {
             Column(
                 modifier = Modifier
@@ -591,13 +615,8 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
         }
         
         // Acceleration Mode Setting
-        Material3Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showAccelerationDialog = true },
-            colors = Material3CardDefaults.cardColors(
-                containerColor = Color(0xFF1E1E1E)
-            )
+        FocusableSettingsCard(
+            onActivate = { showAccelerationDialog = true }
         ) {
             Column(
                 modifier = Modifier
@@ -620,13 +639,8 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
         }
         
         // Aspect Ratio Setting
-        Material3Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showAspectRatioDialog = true },
-            colors = Material3CardDefaults.cardColors(
-                containerColor = Color(0xFF1E1E1E)
-            )
+        FocusableSettingsCard(
+            onActivate = { showAspectRatioDialog = true }
         ) {
             Column(
                 modifier = Modifier
@@ -657,13 +671,8 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
             modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
         )
         
-        Material3Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onClearPlaylist() },
-            colors = Material3CardDefaults.cardColors(
-                containerColor = Color(0xFF1E1E1E)
-            )
+        FocusableSettingsCard(
+            onActivate = { onClearPlaylist() }
         ) {
             Row(
                 modifier = Modifier
