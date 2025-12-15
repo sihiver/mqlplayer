@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -667,6 +668,9 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     var refreshKey by remember { mutableStateOf(0) }
     var showAllCategory by remember { mutableStateOf<String?>(null) }
     var showAllRecent by remember { mutableStateOf(false) }
+    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val initialFocusRequester = remember { FocusRequester() }
+    var initialFocusRequested by remember { mutableStateOf(false) }
     
     // Listen to lifecycle events
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -785,30 +789,42 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        Material3Text(
-                            text = "See all",
-                            fontSize = 14.sp,
-                            color = Color(0xFF2196F3),
-                            modifier = Modifier.clickable {
-                                showAllCategory = "Favorites"
-                            }
-                        )
+                        TextButton(onClick = { showAllCategory = "Favorites" }) {
+                            Material3Text(
+                                text = "See all",
+                                fontSize = 14.sp,
+                                color = Color(0xFF2196F3)
+                            )
+                        }
                     }
                     
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(favorites) { channel ->
+                        itemsIndexed(favorites) { index, channel ->
                             ChannelCardCompact(
                                 channel = channel,
                                 onClick = onChannelClick,
+                                modifier = if (isTv && !initialFocusRequested && index == 0) {
+                                    Modifier.focusRequester(initialFocusRequester)
+                                } else {
+                                    Modifier
+                                },
                                 onFavoriteClick = { 
                                     ChannelRepository.toggleFavorite(context, channel.id)
                                     refreshKey++
                                 },
                                 isFavorite = true
                             )
+                        }
+                    }
+
+                    LaunchedEffect(isTv, favorites.size) {
+                        if (isTv && !initialFocusRequested && favorites.isNotEmpty()) {
+                            initialFocusRequester.requestFocus()
+                            initialFocusRequested = true
                         }
                     }
                 }
@@ -832,30 +848,42 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        Material3Text(
-                            text = "See all",
-                            fontSize = 14.sp,
-                            color = Color(0xFF2196F3),
-                            modifier = Modifier.clickable {
-                                showAllRecent = true
-                            }
-                        )
+                        TextButton(onClick = { showAllRecent = true }) {
+                            Material3Text(
+                                text = "See all",
+                                fontSize = 14.sp,
+                                color = Color(0xFF2196F3)
+                            )
+                        }
                     }
                     
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(recentlyWatched) { channel ->
+                        itemsIndexed(recentlyWatched) { index, channel ->
                             ChannelCardCompact(
                                 channel = channel,
                                 onClick = onChannelClick,
+                                modifier = if (isTv && !initialFocusRequested && favorites.isEmpty() && index == 0) {
+                                    Modifier.focusRequester(initialFocusRequester)
+                                } else {
+                                    Modifier
+                                },
                                 onFavoriteClick = { 
                                     ChannelRepository.toggleFavorite(context, channel.id)
                                     refreshKey++
                                 },
                                 isFavorite = ChannelRepository.isFavorite(channel.id)
                             )
+                        }
+                    }
+
+                    LaunchedEffect(isTv, favorites.size, recentlyWatched.size) {
+                        if (isTv && !initialFocusRequested && favorites.isEmpty() && recentlyWatched.isNotEmpty()) {
+                            initialFocusRequester.requestFocus()
+                            initialFocusRequested = true
                         }
                     }
                 }
@@ -881,30 +909,48 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
-                        Material3Text(
-                            text = "See all",
-                            fontSize = 14.sp,
-                            color = Color(0xFF2196F3),
-                            modifier = Modifier.clickable {
-                                showAllCategory = category
-                            }
-                        )
+                        TextButton(onClick = { showAllCategory = category }) {
+                            Material3Text(
+                                text = "See all",
+                                fontSize = 14.sp,
+                                color = Color(0xFF2196F3)
+                            )
+                        }
                     }
                     
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(categoryChannels) { channel ->
+                        itemsIndexed(categoryChannels) { index, channel ->
                             ChannelCardCompact(
                                 channel = channel,
                                 onClick = onChannelClick,
+                                modifier = if (isTv && !initialFocusRequested && favorites.isEmpty() && recentlyWatched.isEmpty() && index == 0) {
+                                    Modifier.focusRequester(initialFocusRequester)
+                                } else {
+                                    Modifier
+                                },
                                 onFavoriteClick = { 
                                     ChannelRepository.toggleFavorite(context, channel.id)
                                     refreshKey++
                                 },
                                 isFavorite = ChannelRepository.isFavorite(channel.id)
                             )
+                        }
+                    }
+
+                    LaunchedEffect(isTv, favorites.size, recentlyWatched.size, categoryChannels.size) {
+                        if (
+                            isTv &&
+                            !initialFocusRequested &&
+                            favorites.isEmpty() &&
+                            recentlyWatched.isEmpty() &&
+                            categoryChannels.isNotEmpty()
+                        ) {
+                            initialFocusRequester.requestFocus()
+                            initialFocusRequested = true
                         }
                     }
                 }
@@ -1045,16 +1091,20 @@ fun ChannelListItem(channel: Channel, onClick: (Channel) -> Unit) {
 fun ChannelCardCompact(
     channel: Channel,
     onClick: (Channel) -> Unit,
+    modifier: Modifier = Modifier,
     onFavoriteClick: () -> Unit = {},
     isFavorite: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val cardWidth = if (isTv) 180.dp else 120.dp
+    val cardHeight = if (isTv) 200.dp else 140.dp
     
     Material3Card(
         onClick = { onClick(channel) },
-        modifier = Modifier
-            .width(120.dp)
-            .height(140.dp)
+        modifier = modifier
+            .width(cardWidth)
+            .height(cardHeight)
             .onFocusChanged { isFocused = it.isFocused }
             .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
@@ -1094,7 +1144,7 @@ fun ChannelCardCompact(
                 // Show first letter of channel name as fallback
                 Material3Text(
                     text = channel.name.take(2).uppercase(),
-                    fontSize = 28.sp,
+                    fontSize = if (isTv) 34.sp else 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = 0.5f)
                 )
@@ -1143,7 +1193,7 @@ fun ChannelCardCompact(
             ) {
                 Material3Text(
                     text = channel.name,
-                    fontSize = 12.sp,
+                    fontSize = if (isTv) 14.sp else 12.sp,
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
