@@ -271,12 +271,27 @@ class MainActivity : ComponentActivity() {
                                 onClick: () -> Unit
                             ) {
                                 var focused by remember { mutableStateOf(false) }
+                                fun activate() {
+                                    onClick()
+                                }
                                 Material3Card(
                                     onClick = onClick,
                                     modifier = Modifier
                                         .padding(horizontal = 10.dp)
                                         .fillMaxWidth()
                                         .height(56.dp)
+                                        .onKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyUp &&
+                                                (event.key == Key.DirectionCenter ||
+                                                    event.key == Key.Enter ||
+                                                    event.key == Key.NumPadEnter)
+                                            ) {
+                                                activate()
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
                                         .onFocusChanged {
                                             focused = it.isFocused
                                             if (it.isFocused) requestExpand() else requestCollapseLater()
