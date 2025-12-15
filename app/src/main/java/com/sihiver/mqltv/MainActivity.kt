@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import androidx.activity.compose.setContent
@@ -103,6 +104,38 @@ class MainActivity : ComponentActivity() {
             MQLTVTheme {
                 var selectedTab by remember { mutableStateOf(0) }
                 var isRefreshing by remember { mutableStateOf(false) }
+                var showExitDialog by remember { mutableStateOf(false) }
+
+                BackHandler(enabled = !showExitDialog) {
+                    showExitDialog = true
+                }
+
+                if (showExitDialog) {
+                    BackHandler {
+                        showExitDialog = false
+                    }
+
+                    AlertDialog(
+                        onDismissRequest = { showExitDialog = false },
+                        title = { Material3Text("Keluar aplikasi?") },
+                        text = { Material3Text("Tekan Keluar untuk menutup aplikasi.") },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showExitDialog = false
+                                    this@MainActivity.finish()
+                                }
+                            ) {
+                                Material3Text("Keluar")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showExitDialog = false }) {
+                                Material3Text("Batal")
+                            }
+                        }
+                    )
+                }
                 
                 // Periodic refresh every 30 minutes
                 LaunchedEffect(Unit) {
