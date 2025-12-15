@@ -343,11 +343,11 @@ class MainActivity : ComponentActivity() {
                             )
                             TvMenuItem(
                                 index = 1,
-                                label = "Movie",
+                                label = "MOVIES",
                                 icon = {
                                     Icon(
                                         Icons.Default.Movie,
-                                        contentDescription = "Movie",
+                                        contentDescription = "MOVIES",
                                         tint = if (selectedTab == 1) Color(0xFFE50914) else Color.White
                                     )
                                 },
@@ -422,8 +422,8 @@ class MainActivity : ComponentActivity() {
                                     onClick = { selectedTab = 0 }
                                 )
                                 NavigationBarItem(
-                                    icon = { Icon(Icons.Default.Movie, contentDescription = "Movie", tint = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
-                                    label = { Material3Text("Movie", color = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
+                                    icon = { Icon(Icons.Default.Movie, contentDescription = "MOVIES", tint = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
+                                    label = { Material3Text("MOVIES", color = if (selectedTab == 1) Color(0xFFE50914) else Color.Gray) },
                                     selected = selectedTab == 1,
                                     onClick = { selectedTab = 1 }
                                 )
@@ -1210,7 +1210,7 @@ fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
 
     if (showAll) {
         FullChannelListScreen(
-            title = "Movie",
+            title = "MOVIES",
             channels = movieChannels,
             onChannelClick = onChannelClick,
             onBack = { showAll = false }
@@ -1233,7 +1233,7 @@ fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Material3Text(
-                    text = "Movie",
+                    text = "MOVIES",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -1259,7 +1259,7 @@ fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
                     contentAlignment = Alignment.Center
                 ) {
                     Material3Text(
-                        text = "Tidak ada channel Movie",
+                        text = "Tidak ada channel MOVIES",
                         color = Color.Gray,
                         fontSize = 16.sp
                     )

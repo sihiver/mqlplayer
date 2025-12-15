@@ -489,8 +489,11 @@ class PlayerActivityExo : ComponentActivity() {
     @Composable
     private fun CategoryListView() {
         val categories = remember { ChannelRepository.getAllCategories() }
-        fun displayCategoryLabel(category: String): String =
-            if (category.trim().equals("event", ignoreCase = true)) "EVENTS" else category
+        fun displayCategoryLabel(category: String): String = when {
+            category.trim().equals("event", ignoreCase = true) -> "EVENTS"
+            category.trim().equals("movie", ignoreCase = true) -> "MOVIES"
+            else -> category
+        }
         
         Box(
             modifier = Modifier
@@ -648,6 +651,7 @@ class PlayerActivityExo : ComponentActivity() {
         fun displayCategoryLabel(category: String?): String = when {
             category == null -> "Semua Channel"
             category.trim().equals("event", ignoreCase = true) -> "EVENTS"
+            category.trim().equals("movie", ignoreCase = true) -> "MOVIES"
             else -> category
         }
         val channels = remember(filterCategory) {

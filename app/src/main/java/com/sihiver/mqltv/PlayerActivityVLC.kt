@@ -752,7 +752,13 @@ class PlayerActivityVLC : ComponentActivity() {
                 add("favorites" to "Favorit")
                 add("recent" to "Terakhir Ditonton")
                 categories.forEach { cat ->
-                    add(cat to if (cat.trim().equals("event", ignoreCase = true)) "EVENTS" else cat)
+                    add(
+                        cat to when {
+                            cat.trim().equals("event", ignoreCase = true) -> "EVENTS"
+                            cat.trim().equals("movie", ignoreCase = true) -> "MOVIES"
+                            else -> cat
+                        }
+                    )
                 }
             }
         }
