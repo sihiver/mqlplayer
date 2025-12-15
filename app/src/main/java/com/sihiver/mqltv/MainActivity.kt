@@ -921,7 +921,11 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     }
     
     val categories = remember(channels) {
-        ChannelRepository.getAllCategories().filterNot { it.contains("movie", ignoreCase = true) }
+        val base = ChannelRepository.getAllCategories()
+            .filterNot { it.contains("movie", ignoreCase = true) }
+
+        val eventCategory = base.firstOrNull { it.trim().equals("event", ignoreCase = true) }
+        if (eventCategory == null) base else listOf(eventCategory) + base.filterNot { it == eventCategory }
     }
     
     val favorites = remember(refreshKey) {

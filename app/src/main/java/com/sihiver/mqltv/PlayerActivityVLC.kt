@@ -720,8 +720,14 @@ class PlayerActivityVLC : ComponentActivity() {
     private fun ChannelListOverlay() {
         val allChannels: List<Channel> = remember { ChannelRepository.getAllChannels() }
         val favoriteChannels: List<Channel> = remember { ChannelRepository.getFavorites() }
-        val categories: List<String> = remember { 
-            allChannels.map { ch -> ch.category }.distinct().filter { cat -> cat.isNotEmpty() }
+        val categories: List<String> = remember {
+            val base = allChannels
+                .map { ch -> ch.category }
+                .distinct()
+                .filter { cat -> cat.isNotEmpty() }
+
+            val eventCategory = base.firstOrNull { it.trim().equals("event", ignoreCase = true) }
+            if (eventCategory == null) base else listOf(eventCategory) + base.filterNot { it == eventCategory }
         }
         
         // Filter channels based on selected category
