@@ -84,12 +84,117 @@ class PlayerActivityVLC : ComponentActivity() {
     private val selectedCategory = mutableStateOf("all") // all, favorites, recent, or category name
     private val selectedSidebarIndex = mutableStateOf(0)
 
+    private data class VideoSettings(
+        val orientation: String,
+        val acceleration: String,
+        val aspectRatio: String
+    )
+
+    private fun readVideoSettings(): VideoSettings {
+        val prefs = getSharedPreferences("video_settings", MODE_PRIVATE)
+        return VideoSettings(
+            orientation = prefs.getString("orientation", "Sensor Landscape") ?: "Sensor Landscape",
+            acceleration = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)",
+            aspectRatio = prefs.getString("aspect_ratio", "Fit") ?: "Fit"
+        )
+    }
+
+    private fun applyRequestedOrientation(setting: String) {
+        requestedOrientation = when (setting) {
+            "Portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            "Landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            "Auto" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+    }
+
+    private fun hwFlagsForAcceleration(setting: String): Pair<Boolean, Boolean> {
+        return when (setting) {
+            "SW (Software)" -> false to false
+            "HW+ (Hardware+)" -> true to true
+            else -> true to false
+        }
+    }
+
+    private fun avcodecHwOptionForAcceleration(setting: String): String {
+        return when (setting) {
+            "SW (Software)" -> "--avcodec-hw=none"
+            "HW (Hardware)" -> "--avcodec-hw=mediacodec"
+            "HW+ (Hardware+)" -> "--avcodec-hw=any"
+            else -> "--avcodec-hw=any"
+        }
+    }
+
+    private fun applyHwDecoderToMedia(media: Media, accelerationSetting: String) {
+        val (enabled, force) = hwFlagsForAcceleration(accelerationSetting)
+        try {
+            media.setHWDecoderEnabled(enabled, force)
+        } catch (e: Exception) {
+            android.util.Log.w("PlayerActivityVLC", "setHWDecoderEnabled failed", e)
+        }
+    }
+
+    private fun setPlayerAspectRatio(player: MediaPlayer?, ratio: String?) {
+        try {
+            player?.javaClass?.getMethod("setAspectRatio", String::class.java)?.invoke(player, ratio)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun setPlayerCropGeometry(player: MediaPlayer?, crop: String?) {
+        try {
+            player?.javaClass?.getMethod("setCropGeometry", String::class.java)?.invoke(player, crop)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun setPlayerScale(player: MediaPlayer?, scale: Float) {
+        try {
+            player?.javaClass?.getMethod("setScale", java.lang.Float.TYPE)?.invoke(player, scale)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun applyAspectRatioSetting(player: MediaPlayer?, aspectRatioSetting: String) {
+        // Use reflection to stay compatible across libvlc versions
+        when (aspectRatioSetting) {
+            "Fill" -> {
+                // Typical TV is 16:9; cropping to 16:9 fills screen.
+                setPlayerAspectRatio(player, null)
+                setPlayerCropGeometry(player, "16:9")
+                setPlayerScale(player, 0f)
+            }
+            "Zoom" -> {
+                setPlayerAspectRatio(player, null)
+                setPlayerCropGeometry(player, null)
+                setPlayerScale(player, 1.25f)
+            }
+            "16:9" -> {
+                setPlayerCropGeometry(player, null)
+                setPlayerScale(player, 0f)
+                setPlayerAspectRatio(player, "16:9")
+            }
+            "4:3" -> {
+                setPlayerCropGeometry(player, null)
+                setPlayerScale(player, 0f)
+                setPlayerAspectRatio(player, "4:3")
+            }
+            else -> {
+                // Fit
+                setPlayerCropGeometry(player, null)
+                setPlayerAspectRatio(player, null)
+                setPlayerScale(player, 0f)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         android.util.Log.d("PlayerActivityVLC", "onCreate - using VLC player")
         
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        val settings = readVideoSettings()
+        applyRequestedOrientation(settings.orientation)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.setFlags(
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
@@ -163,6 +268,8 @@ class PlayerActivityVLC : ComponentActivity() {
     private fun initializePlayer() {
         try {
             ChannelRepository.loadChannels(this)
+
+            val settings = readVideoSettings()
             
             val ch = ChannelRepository.getChannelById(channelId)
             if (ch == null) {
@@ -188,7 +295,7 @@ class PlayerActivityVLC : ComponentActivity() {
                 "--clock-synchro=0",
                 "--drop-late-frames",
                 "--skip-frames",
-                "--avcodec-hw=any"
+                avcodecHwOptionForAcceleration(settings.acceleration)
             )
             
             libVLC = LibVLC(this, options)
@@ -262,7 +369,7 @@ class PlayerActivityVLC : ComponentActivity() {
             vlcPlayer?.attachViews(videoLayout, null, false, false)
             
             val media = Media(libVLC, Uri.parse(ch.url)).apply {
-                setHWDecoderEnabled(true, false)
+                applyHwDecoderToMedia(this, settings.acceleration)
                 addOption(":network-caching=1500")
                 addOption(":live-caching=1500")
             }
@@ -276,6 +383,7 @@ class PlayerActivityVLC : ComponentActivity() {
             
             // Langsung play dengan volume normal
             vlcPlayer?.volume = 100
+            applyAspectRatioSetting(vlcPlayer, settings.aspectRatio)
             vlcPlayer?.play()
             
             android.util.Log.d("PlayerActivityVLC", "Video playing with full audio")
@@ -290,6 +398,8 @@ class PlayerActivityVLC : ComponentActivity() {
     private fun enableAudioAfterVideoReady() {
         try {
             val ch = ChannelRepository.getChannelById(channelId) ?: return
+
+            val settings = readVideoSettings()
             
             // Get current position
             val currentPos = vlcPlayer?.time ?: 0L
@@ -298,7 +408,7 @@ class PlayerActivityVLC : ComponentActivity() {
             
             // Create new media WITH audio
             val media = Media(libVLC, Uri.parse(ch.url)).apply {
-                setHWDecoderEnabled(true, false)
+                applyHwDecoderToMedia(this, settings.acceleration)
                 addOption(":network-caching=300")
                 addOption(":live-caching=300")
                 // NO :no-audio option - audio akan aktif
@@ -309,6 +419,8 @@ class PlayerActivityVLC : ComponentActivity() {
             
             // Set volume penuh
             vlcPlayer?.volume = 100
+
+            applyAspectRatioSetting(vlcPlayer, settings.aspectRatio)
             
             // Play dari posisi yang sama (untuk live stream akan start dari current)
             vlcPlayer?.play()
