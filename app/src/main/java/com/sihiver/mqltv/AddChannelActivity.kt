@@ -344,7 +344,7 @@ fun ImportM3UScreen(
                         try {
                             val count = if (importMethod == "url") {
                                 // Save playlist URL for auto-refresh
-                                ChannelRepository.savePlaylistUrl(context, m3uUrl)
+                                ChannelRepository.addPlaylistUrl(context, m3uUrl)
                                 ChannelRepository.importFromM3UUrl(m3uUrl)
                             } else {
                                 ChannelRepository.importFromM3U(m3uContent)

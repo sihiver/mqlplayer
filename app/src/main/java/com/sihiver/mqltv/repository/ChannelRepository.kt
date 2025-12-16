@@ -15,6 +15,10 @@ object ChannelRepository {
     private var sampleChannels = mutableListOf<Channel>()
     private var nextId = 100
     private var sampleChannelsCleared = false
+
+    private const val PREFS_APP = "mqltv_prefs"
+    private const val KEY_PLAYLIST_URL_LEGACY = "playlist_url"
+    private const val KEY_PLAYLIST_URLS = "playlist_urls"
     
     fun getSampleChannels(): List<Channel> {
         if (sampleChannelsCleared) return emptyList()
@@ -61,7 +65,8 @@ object ChannelRepository {
     }
     
     fun addChannel(channel: Channel) {
-        val newChannel = channel.copy(id = nextId++)
+        val source = if (channel.source.isBlank()) "manual" else channel.source
+        val newChannel = channel.copy(id = nextId++, source = source)
         customChannels.add(newChannel)
     }
     
@@ -85,7 +90,7 @@ object ChannelRepository {
         return getCategories().filter { it.isNotEmpty() }
     }
     
-    suspend fun importFromM3U(m3uContent: String): Int {
+    suspend fun importFromM3U(m3uContent: String, source: String = "paste"): Int {
         return withContext(Dispatchers.IO) {
             var count = 0
             val lines = m3uContent.lines()
@@ -114,16 +119,21 @@ object ChannelRepository {
                 } else if (line.isNotEmpty() && !line.startsWith("#")) {
                     // This is a URL line
                     if (currentName.isNotEmpty()) {
-                        addChannel(
-                            Channel(
-                                id = 0, // Will be assigned
-                                name = currentName,
-                                url = line,
-                                logo = currentLogo,
-                                category = currentGroup
+                        val normalizedSource = source.trim()
+                        val alreadyExists = customChannels.any { it.url == line && it.source == normalizedSource }
+                        if (!alreadyExists) {
+                            addChannel(
+                                Channel(
+                                    id = 0, // Will be assigned
+                                    name = currentName,
+                                    url = line,
+                                    logo = currentLogo,
+                                    category = currentGroup,
+                                    source = normalizedSource
+                                )
                             )
-                        )
-                        count++
+                            count++
+                        }
                     }
                     // Reset for next channel
                     currentName = ""
@@ -146,8 +156,8 @@ object ChannelRepository {
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
                 val content = reader.readText()
                 reader.close()
-                
-                importFromM3U(content)
+
+                importFromM3U(content, source = url)
             } catch (e: Exception) {
                 e.printStackTrace()
                 0
@@ -200,7 +210,8 @@ object ChannelRepository {
                                 name = currentName,
                                 url = line,
                                 category = currentGroup,
-                                logo = currentLogo
+                                logo = currentLogo,
+                                source = url
                             )
                         )
                         currentName = ""
@@ -209,15 +220,15 @@ object ChannelRepository {
                 }
                 
                 // Compare with existing channels and update
-                val existingChannels = customChannels.toList()
+                val existingChannels = customChannels.filter { it.source == url }
                 val channelsToRemove = mutableListOf<Channel>()
                 val channelsToAdd = mutableListOf<Channel>()
+
+                val newKeySet = newChannels.map { it.url }.toSet()
                 
                 // Find channels to remove (not in new playlist)
                 for (existing in existingChannels) {
-                    val stillExists = newChannels.any { 
-                        it.name == existing.name && it.url == existing.url 
-                    }
+                    val stillExists = newKeySet.contains(existing.url)
                     if (!stillExists) {
                         channelsToRemove.add(existing)
                         android.util.Log.d("ChannelRepository", "Channel removed from server: ${existing.name}")
@@ -226,9 +237,7 @@ object ChannelRepository {
                 
                 // Find channels to add (new in playlist)
                 for (new in newChannels) {
-                    val alreadyExists = existingChannels.any { 
-                        it.name == new.name && it.url == new.url 
-                    }
+                    val alreadyExists = existingChannels.any { it.url == new.url }
                     if (!alreadyExists) {
                         channelsToAdd.add(new.copy(id = nextId++))
                         android.util.Log.d("ChannelRepository", "New channel from server: ${new.name}")
@@ -249,14 +258,42 @@ object ChannelRepository {
         }
     }
     
-    fun getPlaylistUrl(context: Context): String {
-        val prefs = context.getSharedPreferences("mqltv_prefs", Context.MODE_PRIVATE)
-        return prefs.getString("playlist_url", "") ?: ""
+    fun getPlaylistUrls(context: Context): List<String> {
+        val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+        val currentSet = (prefs.getStringSet(KEY_PLAYLIST_URLS, emptySet()) ?: emptySet()).toMutableSet()
+
+        // Migrate legacy single URL if present
+        val legacy = prefs.getString(KEY_PLAYLIST_URL_LEGACY, "")?.trim().orEmpty()
+        if (legacy.isNotEmpty() && !currentSet.contains(legacy)) {
+            currentSet.add(legacy)
+            prefs.edit()
+                .remove(KEY_PLAYLIST_URL_LEGACY)
+                .putStringSet(KEY_PLAYLIST_URLS, currentSet)
+                .apply()
+        }
+
+        return currentSet.filter { it.isNotBlank() }.distinct()
     }
-    
-    fun savePlaylistUrl(context: Context, url: String) {
-        val prefs = context.getSharedPreferences("mqltv_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putString("playlist_url", url).apply()
+
+    fun addPlaylistUrl(context: Context, url: String) {
+        val normalized = url.trim()
+        if (normalized.isEmpty()) return
+
+        val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+        val currentSet = (prefs.getStringSet(KEY_PLAYLIST_URLS, emptySet()) ?: emptySet()).toMutableSet()
+        currentSet.add(normalized)
+        prefs.edit()
+            .remove(KEY_PLAYLIST_URL_LEGACY)
+            .putStringSet(KEY_PLAYLIST_URLS, currentSet)
+            .apply()
+    }
+
+    fun clearPlaylistUrls(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+        prefs.edit()
+            .remove(KEY_PLAYLIST_URL_LEGACY)
+            .remove(KEY_PLAYLIST_URLS)
+            .apply()
     }
     
     fun saveChannels(context: Context) {
@@ -265,7 +302,7 @@ object ChannelRepository {
         
         // Save as JSON-like string
         val channelsString = customChannels.joinToString("|") { channel ->
-            "${channel.id},${channel.name},${channel.url},${channel.logo},${channel.category}"
+            "${channel.id},${channel.name},${channel.url},${channel.logo},${channel.category},${channel.source}"
         }
         editor.putString("custom_channels", channelsString)
         editor.putInt("next_id", nextId)
@@ -290,7 +327,8 @@ object ChannelRepository {
                             name = parts[1],
                             url = parts[2],
                             logo = parts[3],
-                            category = parts[4]
+                            category = parts[4],
+                            source = if (parts.size >= 6) parts[5] else ""
                         )
                     )
                 }
@@ -303,6 +341,7 @@ object ChannelRepository {
         sampleChannels.clear()
         sampleChannelsCleared = true
         nextId = 100
+        clearPlaylistUrls(context)
         saveChannels(context)
         android.util.Log.d("ChannelRepository", "All channels cleared including samples")
     }

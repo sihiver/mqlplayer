@@ -93,11 +93,11 @@ class MainActivity : ComponentActivity() {
         // Load saved channels
         ChannelRepository.loadChannels(this)
         
-        // Auto-refresh playlist on launch
+        // Auto-refresh playlists on launch
         lifecycleScope.launch {
             try {
-                val playlistUrl = ChannelRepository.getPlaylistUrl(this@MainActivity)
-                if (playlistUrl.isNotEmpty()) {
+                val playlistUrls = ChannelRepository.getPlaylistUrls(this@MainActivity)
+                playlistUrls.forEach { playlistUrl ->
                     android.util.Log.d("MainActivity", "Auto-refreshing playlist from: $playlistUrl")
                     ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
                 }
@@ -149,11 +149,13 @@ class MainActivity : ComponentActivity() {
                     while (true) {
                         kotlinx.coroutines.delay(30 * 60 * 1000L) // 30 minutes
                         try {
-                            val playlistUrl = ChannelRepository.getPlaylistUrl(this@MainActivity)
-                            if (playlistUrl.isNotEmpty()) {
-                                android.util.Log.d("MainActivity", "Periodic refresh from: $playlistUrl")
+                            val playlistUrls = ChannelRepository.getPlaylistUrls(this@MainActivity)
+                            if (playlistUrls.isNotEmpty()) {
                                 isRefreshing = true
-                                ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
+                                playlistUrls.forEach { playlistUrl ->
+                                    android.util.Log.d("MainActivity", "Periodic refresh from: $playlistUrl")
+                                    ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
+                                }
                                 isRefreshing = false
                             }
                         } catch (e: Exception) {
