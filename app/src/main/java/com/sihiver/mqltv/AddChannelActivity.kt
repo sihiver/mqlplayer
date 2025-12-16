@@ -1,9 +1,12 @@
 package com.sihiver.mqltv
 
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -21,7 +24,9 @@ import androidx.compose.ui.unit.sp
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AddChannelActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -234,9 +239,27 @@ fun ImportM3UScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     var m3uUrl by remember { mutableStateOf("") }
     var m3uContent by remember { mutableStateOf("") }
+    var pickedFileUri by remember { mutableStateOf<Uri?>(null) }
     var isLoading by remember { mutableStateOf(false) }
-    var importMethod by remember { mutableStateOf("url") } // "url" or "paste"
+    var importMethod by remember { mutableStateOf("url") } // "url" | "paste" | "file"
     val scope = rememberCoroutineScope()
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            if (uri != null) {
+                pickedFileUri = uri
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) {
+                    // Ignore if persist permission not granted
+                }
+            }
+        }
+    )
     
     Column(
         modifier = Modifier
@@ -275,6 +298,15 @@ fun ImportM3UScreen(
             ) {
                 Text("Paste Content")
             }
+
+            Button(
+                onClick = { importMethod = "file" },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (importMethod == "file") Color(0xFF00BCD4) else Color.Gray
+                )
+            ) {
+                Text("From File")
+            }
         }
         
         if (importMethod == "url") {
@@ -293,7 +325,7 @@ fun ImportM3UScreen(
                 ),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
             )
-        } else {
+        } else if (importMethod == "paste") {
             // M3U Content
             OutlinedTextField(
                 value = m3uContent,
@@ -311,6 +343,34 @@ fun ImportM3UScreen(
                 ),
                 maxLines = 10
             )
+        } else {
+            // From File
+            Button(
+                onClick = {
+                    filePickerLauncher.launch(
+                        arrayOf(
+                            "application/x-mpegURL",
+                            "application/vnd.apple.mpegurl",
+                            "audio/x-mpegurl",
+                            "text/plain",
+                            "*/*"
+                        )
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF00BCD4)
+                )
+            ) {
+                Text(if (pickedFileUri == null) "Choose .m3u/.m3u8 file" else "Change file")
+            }
+
+            if (pickedFileUri != null) {
+                Text(
+                    text = "Selected: ${pickedFileUri}",
+                    color = Color.Gray,
+                    fontSize = 12.sp
+                )
+            }
         }
         
         if (isLoading) {
@@ -342,12 +402,29 @@ fun ImportM3UScreen(
                     scope.launch {
                         isLoading = true
                         try {
-                            val count = if (importMethod == "url") {
-                                // Save playlist URL for auto-refresh
-                                ChannelRepository.addPlaylistUrl(context, m3uUrl)
-                                ChannelRepository.importFromM3UUrl(m3uUrl)
-                            } else {
-                                ChannelRepository.importFromM3U(m3uContent)
+                            val count = when (importMethod) {
+                                "url" -> {
+                                    // Save playlist URL for auto-refresh
+                                    ChannelRepository.addPlaylistUrl(context, m3uUrl)
+                                    ChannelRepository.importFromM3UUrl(m3uUrl)
+                                }
+                                "paste" -> {
+                                    ChannelRepository.importFromM3U(m3uContent)
+                                }
+                                else -> {
+                                    val uri = pickedFileUri
+                                    if (uri == null) {
+                                        0
+                                    } else {
+                                        val content = withContext(Dispatchers.IO) {
+                                            context.contentResolver.openInputStream(uri)
+                                                ?.bufferedReader()
+                                                ?.use { it.readText() }
+                                                .orEmpty()
+                                        }
+                                        ChannelRepository.importFromM3U(content, source = uri.toString())
+                                    }
+                                }
                             }
                             
                             android.util.Log.d("AddChannelActivity", "Import completed: $count channels added")
@@ -378,6 +455,11 @@ fun ImportM3UScreen(
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
+                            android.widget.Toast.makeText(
+                                context,
+                                "Import gagal: ${e.message ?: "unknown error"}",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
                         } finally {
                             isLoading = false
                         }
@@ -386,7 +468,8 @@ fun ImportM3UScreen(
                 modifier = Modifier.weight(1f),
                 enabled = !isLoading && (
                     (importMethod == "url" && m3uUrl.isNotBlank()) ||
-                    (importMethod == "paste" && m3uContent.isNotBlank())
+                    (importMethod == "paste" && m3uContent.isNotBlank()) ||
+                    (importMethod == "file" && pickedFileUri != null)
                 ),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF00BCD4)
