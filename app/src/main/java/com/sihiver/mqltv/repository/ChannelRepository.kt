@@ -302,7 +302,7 @@ object ChannelRepository {
         
         // Save as JSON-like string
         val channelsString = customChannels.joinToString("|") { channel ->
-            "${channel.id},${channel.name},${channel.url},${channel.logo},${channel.category},${channel.source}"
+            "${channel.id},${channel.name},${channel.url},${channel.logo},${channel.category},${channel.source},${channel.drmLicenseUrl}"
         }
         editor.putString("custom_channels", channelsString)
         editor.putInt("next_id", nextId)
@@ -328,7 +328,8 @@ object ChannelRepository {
                             url = parts[2],
                             logo = parts[3],
                             category = parts[4],
-                            source = if (parts.size >= 6) parts[5] else ""
+                            source = if (parts.size >= 6) parts[5] else "",
+                            drmLicenseUrl = if (parts.size >= 7) parts[6] else ""
                         )
                     )
                 }

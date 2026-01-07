@@ -6,5 +6,6 @@ data class Channel(
     val url: String,
     val logo: String = "",
     val category: String = "General",
-    val source: String = "" // playlist URL / manual / paste
+    val source: String = "", // playlist URL / manual / paste
+    val drmLicenseUrl: String = "" // Widevine license URL (optional)
 )

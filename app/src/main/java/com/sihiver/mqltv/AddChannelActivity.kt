@@ -113,6 +113,7 @@ fun ManualAddChannel(
     var channelUrl by remember { mutableStateOf("") }
     var channelCategory by remember { mutableStateOf("Custom") }
     var channelLogo by remember { mutableStateOf("") }
+    var drmLicenseUrl by remember { mutableStateOf("") }
     
     Column(
         modifier = Modifier
@@ -187,6 +188,22 @@ fun ManualAddChannel(
             ),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
         )
+
+        // DRM License URL (Optional)
+        OutlinedTextField(
+            value = drmLicenseUrl,
+            onValueChange = { drmLicenseUrl = it },
+            label = { Text("DRM License URL (Widevine, optional)", color = Color.Gray) },
+            placeholder = { Text("https://.../widevine?...", color = Color.DarkGray) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedBorderColor = Color(0xFF00BCD4),
+                unfocusedBorderColor = Color.Gray
+            ),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+        )
         
         Spacer(modifier = Modifier.weight(1f))
         
@@ -213,7 +230,8 @@ fun ManualAddChannel(
                             name = channelName,
                             url = channelUrl,
                             logo = channelLogo,
-                            category = channelCategory
+                            category = channelCategory,
+                            drmLicenseUrl = drmLicenseUrl.trim()
                         )
                         ChannelRepository.addChannel(channel)
                         onChannelAdded()

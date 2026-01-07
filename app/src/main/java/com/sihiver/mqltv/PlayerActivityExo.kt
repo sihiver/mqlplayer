@@ -29,7 +29,10 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -235,9 +238,21 @@ class PlayerActivityExo : ComponentActivity() {
                 setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             }
 
-            // Create media source factory
+            // Setup DRM if needed
+            val drmSessionManagerProvider = if (!channel.drmLicenseUrl.isBlank()) {
+                createDrmSessionManagerProvider(channel.drmLicenseUrl)
+            } else {
+                null
+            }
+
+            // Create media source factory with DRM support
             val mediaSourceFactory = DefaultMediaSourceFactory(this)
                 .setDataSourceFactory(dataSourceFactory)
+                .apply {
+                    if (drmSessionManagerProvider != null) {
+                        setDrmSessionManagerProvider { drmSessionManagerProvider }
+                    }
+                }
 
             // Simple LoadControl - let ExoPlayer manage buffers
             val loadControl = androidx.media3.exoplayer.DefaultLoadControl()
@@ -273,9 +288,46 @@ class PlayerActivityExo : ComponentActivity() {
                         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                             android.util.Log.e("PlayerActivityExo", "Player error: ${error.message}", error)
                             android.util.Log.e("PlayerActivityExo", "Error code: ${error.errorCode}")
+                            android.util.Log.e("PlayerActivityExo", "Error cause: ${error.cause?.message}")
                             
                             val channel = ChannelRepository.getChannelById(channelId)
                             val channelName = channel?.name ?: "Unknown"
+                            
+                            // Log full error stack for DRM debugging
+                            var currentError: Throwable? = error
+                            while (currentError != null) {
+                                android.util.Log.e("PlayerActivityExo", "  -> ${currentError.javaClass.simpleName}: ${currentError.message}")
+                                currentError = currentError.cause
+                            }
+                            
+                            // Check for DRM errors
+                            if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DRM_UNSPECIFIED ||
+                                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR ||
+                                error.message?.contains("DRM", ignoreCase = true) == true ||
+                                error.cause?.message?.contains("DRM", ignoreCase = true) == true) {
+                                
+                                val errorMsg = error.cause?.message ?: error.message ?: "Unknown DRM error"
+                                val drmMsg = when {
+                                    errorMsg.contains("401") -> "✗ DRM: Unauthorized (401)\nToken expired atau salah"
+                                    errorMsg.contains("403") -> "✗ DRM: Forbidden (403)\nAkses ditolak"
+                                    errorMsg.contains("404") -> "✗ DRM: License server not found (404)"
+                                    errorMsg.contains("6004") -> "✗ DRM Error 6004\nLicense acquisition failed"
+                                    errorMsg.contains("PROVISIONING") -> "✗ DRM: Device provisioning failed\nPerangkat tidak support"
+                                    else -> "✗ DRM Source Error:\n${errorMsg.take(120)}"
+                                }
+                                
+                                android.util.Log.e("PlayerActivityExo", "DRM error details: $errorMsg")
+                                
+                                runOnUiThread {
+                                    android.widget.Toast.makeText(
+                                        this@PlayerActivityExo,
+                                        drmMsg,
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                return
+                            }
                             
                             // Handle decoder errors specifically
                             if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) {
@@ -337,7 +389,7 @@ class PlayerActivityExo : ComponentActivity() {
             playerView?.player = exoPlayer
             
             // Create media item and start playback
-            val mediaItem = MediaItem.fromUri(channel.url)
+            val mediaItem = createMediaItem(channel)
             exoPlayer?.setMediaItem(mediaItem)
             exoPlayer?.prepare()
             
@@ -439,7 +491,7 @@ class PlayerActivityExo : ComponentActivity() {
             exoPlayer?.stop()
             
             // Set new media item
-            val mediaItem = MediaItem.fromUri(channel.url)
+            val mediaItem = createMediaItem(channel)
             exoPlayer?.setMediaItem(mediaItem)
             exoPlayer?.prepare()
             exoPlayer?.play()
@@ -468,6 +520,99 @@ class PlayerActivityExo : ComponentActivity() {
                 android.widget.Toast.LENGTH_SHORT
             ).show()
         }
+    }
+
+    private fun createDrmSessionManagerProvider(licenseUrl: String): androidx.media3.exoplayer.drm.DrmSessionManager {
+        android.util.Log.d("PlayerActivityExo", "=== DRM INIT ===")
+        android.util.Log.d("PlayerActivityExo", "License URL: $licenseUrl")
+        
+        // Toast untuk informasi
+        runOnUiThread {
+            android.widget.Toast.makeText(
+                this,
+                "Init DRM Widevine...",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+        
+        try {
+            // Parse license URL untuk extract custom data header jika ada
+            // Format: https://lic.drmtoday.com/license-proxy-widevine/cenc/|x-dt-custom-data=JWT_TOKEN
+            val parts = licenseUrl.split("|")
+            val actualLicenseUrl = parts[0].trim()
+            val customHeaders = mutableMapOf<String, String>()
+            
+            if (parts.size > 1) {
+                // Parse custom headers dari format: key1=value1|key2=value2
+                parts.drop(1).forEach { header ->
+                    val keyValue = header.split("=", limit = 2)
+                    if (keyValue.size == 2) {
+                        customHeaders[keyValue[0].trim()] = keyValue[1].trim()
+                        android.util.Log.d("PlayerActivityExo", "Custom header: ${keyValue[0]} = ${keyValue[1].take(50)}...")
+                    }
+                }
+            }
+            
+            // Create DRM callback
+            val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                .setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+                .setConnectTimeoutMs(30000)
+                .setReadTimeoutMs(30000)
+            
+            val drmCallback = androidx.media3.exoplayer.drm.HttpMediaDrmCallback(
+                actualLicenseUrl,
+                httpDataSourceFactory
+            )
+            
+            // Set custom headers jika ada (untuk DRMtoday)
+            if (customHeaders.isNotEmpty()) {
+                customHeaders.forEach { (key, value) ->
+                    drmCallback.setKeyRequestProperty(key, value)
+                }
+                android.util.Log.d("PlayerActivityExo", "DRM callback with ${customHeaders.size} custom headers")
+            } else {
+                android.util.Log.d("PlayerActivityExo", "DRM callback without custom headers (token in URL)")
+            }
+
+            // Create DRM session manager
+            val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
+                .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
+                .build(drmCallback)
+            
+            android.util.Log.d("PlayerActivityExo", "DRM session manager created successfully")
+            
+            return drmSessionManager
+        } catch (e: Exception) {
+            android.util.Log.e("PlayerActivityExo", "Failed to create DRM manager", e)
+            runOnUiThread {
+                android.widget.Toast.makeText(
+                    this,
+                    "✗ DRM Init Error: ${e.message}",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            throw e
+        }
+    }
+
+    private fun createMediaItem(channel: Channel): MediaItem {
+        val streamUrl = channel.url.trim()
+        val licenseUrl = channel.drmLicenseUrl.trim()
+        val isDashMpd = streamUrl.endsWith(".mpd", ignoreCase = true)
+        
+        // If no DRM or not DASH, use simple MediaItem
+        if (licenseUrl.isBlank() || !isDashMpd) {
+            android.util.Log.d("PlayerActivityExo", "Creating standard MediaItem for: ${channel.name}")
+            return MediaItem.fromUri(streamUrl)
+        }
+
+        // For DRM content, just return basic MediaItem with MIME type
+        // DRM is handled by DrmSessionManager in MediaSourceFactory
+        android.util.Log.d("PlayerActivityExo", "Creating DASH MediaItem for: ${channel.name}")
+        return MediaItem.Builder()
+            .setUri(streamUrl)
+            .setMimeType(MimeTypes.APPLICATION_MPD)
+            .build()
     }
     
     @Composable
