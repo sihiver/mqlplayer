@@ -1,6 +1,7 @@
 package com.sihiver.mqltv
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,19 +12,32 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
@@ -52,6 +66,12 @@ class LoginActivity : ComponentActivity() {
             MQLTVTheme {
                 val scope = rememberCoroutineScope()
 
+                val isTvDevice = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+
+                val usernameFocusRequester = remember { FocusRequester() }
+                val passwordFocusRequester = remember { FocusRequester() }
+                val loginButtonFocusRequester = remember { FocusRequester() }
+
                 val serverBaseUrl by remember {
                     mutableStateOf(
                         AuthRepository.getServerBaseUrl(this@LoginActivity)
@@ -64,25 +84,52 @@ class LoginActivity : ComponentActivity() {
                 var isLoading by remember { mutableStateOf(false) }
                 var errorMessage by remember { mutableStateOf("") }
 
+                LaunchedEffect(isTvDevice) {
+                    if (isTvDevice) {
+                        usernameFocusRequester.requestFocus()
+                    }
+                }
+
+                val titleFontSize = if (isTvDevice) 28.sp else 20.sp
+                val fieldSpacing = if (isTvDevice) 16.dp else 12.dp
+                val screenPadding = if (isTvDevice) 48.dp else 24.dp
+                val buttonHeight = if (isTvDevice) 56.dp else 48.dp
+
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(24.dp),
+                        .padding(screenPadding),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "Login")
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(text = "Login", fontSize = titleFontSize)
+                    Spacer(modifier = Modifier.height(fieldSpacing))
 
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
                         label = { Text("Username") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(
+                            onNext = { passwordFocusRequester.requestFocus() }
+                        ),
                         modifier = Modifier.fillMaxWidth()
+                            .focusRequester(usernameFocusRequester)
+                            .onKeyEvent { event ->
+                                if (!isTvDevice) return@onKeyEvent false
+                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionDown -> {
+                                        passwordFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(fieldSpacing))
 
                     OutlinedTextField(
                         value = password,
@@ -91,14 +138,34 @@ class LoginActivity : ComponentActivity() {
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
+                            .focusRequester(passwordFocusRequester)
+                            .onKeyEvent { event ->
+                                if (!isTvDevice) return@onKeyEvent false
+                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionDown -> {
+                                        loginButtonFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    Key.DirectionUp -> {
+                                        usernameFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = { loginButtonFocusRequester.requestFocus() }
+                        )
                     )
 
                     if (errorMessage.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(fieldSpacing))
                         Text(text = errorMessage)
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(fieldSpacing))
 
                     Button(
                         onClick = {
@@ -138,7 +205,21 @@ class LoginActivity : ComponentActivity() {
                             }
                         },
                         enabled = !isLoading,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(buttonHeight)
+                            .focusRequester(loginButtonFocusRequester)
+                            .onKeyEvent { event ->
+                                if (!isTvDevice) return@onKeyEvent false
+                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionUp -> {
+                                        passwordFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
                     ) {
                         if (isLoading) {
                             CircularProgressIndicator()
