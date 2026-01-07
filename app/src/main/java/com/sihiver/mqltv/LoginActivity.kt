@@ -12,12 +12,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
@@ -116,172 +122,208 @@ class LoginActivity : ComponentActivity() {
                 val fieldSpacing = if (isTvDevice) 16.dp else 12.dp
                 val screenPadding = if (isTvDevice) 48.dp else 24.dp
                 val buttonHeight = if (isTvDevice) 56.dp else 48.dp
+                val cardMaxWidth = if (isTvDevice) 640.dp else 520.dp
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(screenPadding),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
                 ) {
-                    Text(text = "Login", fontSize = titleFontSize)
-                    Spacer(modifier = Modifier.height(fieldSpacing))
-
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text("Username") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                        keyboardActions = KeyboardActions(
-                            onNext = { passwordFocusRequester.requestFocus() }
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                            .focusRequester(usernameFocusRequester)
-                            .onKeyEvent { event ->
-                                if (!isTvDevice) return@onKeyEvent false
-                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
-                                when (event.key) {
-                                    Key.DirectionDown -> {
-                                        passwordFocusRequester.requestFocus()
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            }
-                    )
-
-                    Spacer(modifier = Modifier.height(fieldSpacing))
-
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Password") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                            .focusRequester(passwordFocusRequester)
-                            .onKeyEvent { event ->
-                                if (!isTvDevice) return@onKeyEvent false
-                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
-                                when (event.key) {
-                                    Key.DirectionDown -> {
-                                        loginButtonFocusRequester.requestFocus()
-                                        true
-                                    }
-                                    Key.DirectionUp -> {
-                                        usernameFocusRequester.requestFocus()
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(
-                            onDone = { loginButtonFocusRequester.requestFocus() }
-                        )
-                    )
-
-                    if (errorMessage.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(fieldSpacing))
-                        Text(text = errorMessage)
-                    }
-
-                    Spacer(modifier = Modifier.height(fieldSpacing))
-
-                    Button(
-                        onClick = {
-                            errorMessage = ""
-                            isLoading = true
-                            scope.launch {
-                                val result = try {
-                                    login(serverBaseUrl, username, password)
-                                } catch (e: Exception) {
-                                    LoginResult.Error(e.message ?: "Login failed")
-                                }
-
-                                when (result) {
-                                    is LoginResult.Success -> {
-                                        AuthRepository.savePassword(this@LoginActivity, password)
-
-                                        // Persist login session
-                                        AuthRepository.saveSession(
-                                            context = this@LoginActivity,
-                                            serverBaseUrl = result.serverBaseUrl,
-                                            username = result.username,
-                                            playlistUrl = result.playlistUrl,
-                                            expiresAtRaw = result.expiresAtRaw,
-                                            expiresAtMillis = result.expiresAtMillis,
-                                            isExpiredServer = result.isExpired,
-                                        )
-
-                                        // Use playlist URL from API as the source for channel refresh
-                                        ChannelRepository.clearPlaylistUrls(this@LoginActivity)
-                                        ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
-
-                                        isLoading = false
-                                        if (result.isExpired) {
-                                            startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
-                                            finish()
-                                        } else {
-                                            startActivity(Intent(this@LoginActivity, MainActivity::class.java))
-                                            finish()
-                                        }
-                                    }
-
-                                    is LoginResult.Error -> {
-                                        isLoading = false
-                                        errorMessage = result.message
-                                    }
-
-                                    is LoginResult.Expired -> {
-                                        AuthRepository.savePassword(this@LoginActivity, password)
-
-                                        AuthRepository.saveSession(
-                                            context = this@LoginActivity,
-                                            serverBaseUrl = result.serverBaseUrl,
-                                            username = result.username,
-                                            playlistUrl = result.playlistUrl,
-                                            expiresAtRaw = result.expiresAtRaw,
-                                            expiresAtMillis = result.expiresAtMillis,
-                                            isExpiredServer = true,
-                                        )
-
-                                        if (result.playlistUrl.isNotBlank()) {
-                                            ChannelRepository.clearPlaylistUrls(this@LoginActivity)
-                                            ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
-                                        }
-
-                                        isLoading = false
-                                        startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
-                                        finish()
-                                    }
-                                }
-                            }
-                        },
-                        enabled = !isLoading,
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(buttonHeight)
-                            .focusRequester(loginButtonFocusRequester)
-                            .onKeyEvent { event ->
-                                if (!isTvDevice) return@onKeyEvent false
-                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
-                                when (event.key) {
-                                    Key.DirectionUp -> {
-                                        passwordFocusRequester.requestFocus()
-                                        true
+                            .fillMaxSize()
+                            .padding(screenPadding),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 0.dp)
+                                .padding(horizontal = 0.dp)
+                                .let { base ->
+                                    if (isTvDevice) base else base
+                                }
+                                .widthIn(max = cardMaxWidth),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                            ),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(if (isTvDevice) 32.dp else 20.dp),
+                                verticalArrangement = Arrangement.spacedBy(fieldSpacing),
+                            ) {
+                                Text(
+                                    text = "Login",
+                                    fontSize = titleFontSize,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+
+                                OutlinedTextField(
+                                    value = username,
+                                    onValueChange = { username = it },
+                                    label = { Text("Username") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                    keyboardActions = KeyboardActions(
+                                        onNext = { passwordFocusRequester.requestFocus() }
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(usernameFocusRequester)
+                                        .onKeyEvent { event ->
+                                            if (!isTvDevice) return@onKeyEvent false
+                                            if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                            when (event.key) {
+                                                Key.DirectionDown -> {
+                                                    passwordFocusRequester.requestFocus()
+                                                    true
+                                                }
+                                                else -> false
+                                            }
+                                        }
+                                )
+
+                                OutlinedTextField(
+                                    value = password,
+                                    onValueChange = { password = it },
+                                    label = { Text("Password") },
+                                    singleLine = true,
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(passwordFocusRequester)
+                                        .onKeyEvent { event ->
+                                            if (!isTvDevice) return@onKeyEvent false
+                                            if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                            when (event.key) {
+                                                Key.DirectionDown -> {
+                                                    loginButtonFocusRequester.requestFocus()
+                                                    true
+                                                }
+                                                Key.DirectionUp -> {
+                                                    usernameFocusRequester.requestFocus()
+                                                    true
+                                                }
+                                                else -> false
+                                            }
+                                        },
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = { loginButtonFocusRequester.requestFocus() }
+                                    )
+                                )
+
+                                if (errorMessage.isNotBlank()) {
+                                    Text(
+                                        text = errorMessage,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontSize = if (isTvDevice) 16.sp else 13.sp,
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        errorMessage = ""
+                                        isLoading = true
+                                        scope.launch {
+                                            val result = try {
+                                                login(serverBaseUrl, username, password)
+                                            } catch (e: Exception) {
+                                                LoginResult.Error(e.message ?: "Login failed")
+                                            }
+
+                                            when (result) {
+                                                is LoginResult.Success -> {
+                                                    AuthRepository.savePassword(this@LoginActivity, password)
+
+                                                    AuthRepository.saveSession(
+                                                        context = this@LoginActivity,
+                                                        serverBaseUrl = result.serverBaseUrl,
+                                                        username = result.username,
+                                                        playlistUrl = result.playlistUrl,
+                                                        expiresAtRaw = result.expiresAtRaw,
+                                                        expiresAtMillis = result.expiresAtMillis,
+                                                        isExpiredServer = result.isExpired,
+                                                    )
+
+                                                    ChannelRepository.clearPlaylistUrls(this@LoginActivity)
+                                                    ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
+
+                                                    isLoading = false
+                                                    if (result.isExpired) {
+                                                        startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
+                                                        finish()
+                                                    } else {
+                                                        startActivity(Intent(this@LoginActivity, MainActivity::class.java))
+                                                        finish()
+                                                    }
+                                                }
+
+                                                is LoginResult.Error -> {
+                                                    isLoading = false
+                                                    errorMessage = result.message
+                                                }
+
+                                                is LoginResult.Expired -> {
+                                                    AuthRepository.savePassword(this@LoginActivity, password)
+
+                                                    AuthRepository.saveSession(
+                                                        context = this@LoginActivity,
+                                                        serverBaseUrl = result.serverBaseUrl,
+                                                        username = result.username,
+                                                        playlistUrl = result.playlistUrl,
+                                                        expiresAtRaw = result.expiresAtRaw,
+                                                        expiresAtMillis = result.expiresAtMillis,
+                                                        isExpiredServer = true,
+                                                    )
+
+                                                    if (result.playlistUrl.isNotBlank()) {
+                                                        ChannelRepository.clearPlaylistUrls(this@LoginActivity)
+                                                        ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
+                                                    }
+
+                                                    isLoading = false
+                                                    startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
+                                                    finish()
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !isLoading,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(buttonHeight)
+                                        .focusRequester(loginButtonFocusRequester)
+                                        .onKeyEvent { event ->
+                                            if (!isTvDevice) return@onKeyEvent false
+                                            if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                            when (event.key) {
+                                                Key.DirectionUp -> {
+                                                    passwordFocusRequester.requestFocus()
+                                                    true
+                                                }
+                                                else -> false
+                                            }
+                                        }
+                                ) {
+                                    if (isLoading) {
+                                        androidx.compose.foundation.layout.Row(
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            CircularProgressIndicator(
+                                                strokeWidth = 2.dp,
+                                                modifier = Modifier.height(20.dp),
+                                            )
+                                            Text(text = "Loading...")
+                                        }
+                                    } else {
+                                        Text(text = "Login")
                                     }
-                                    else -> false
                                 }
                             }
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator()
-                            Spacer(modifier = Modifier.height(0.dp))
-                            Text(text = " Loading...")
-                        } else {
-                            Text(text = "Login")
                         }
                     }
                 }

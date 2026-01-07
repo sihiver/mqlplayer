@@ -11,8 +11,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
@@ -66,37 +71,72 @@ private fun ExpiredScreen(
     val titleSize = if (isTvDevice) 32.sp else 24.sp
     val bodySize = if (isTvDevice) 18.sp else 14.sp
     val buttonHeight = if (isTvDevice) 56.dp else 48.dp
+    val cardMaxWidth = if (isTvDevice) 720.dp else 560.dp
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
     ) {
-        Text(text = "Akun sudah expired", fontSize = titleSize)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(text = "Silahkan perpanjang / hubungi admin", fontSize = bodySize)
-
-        if (username.isNotBlank()) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(text = "Username: $username", fontSize = bodySize)
-        }
-
-        if (expiresAt.isNotBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Expires at: $expiresAt", fontSize = bodySize)
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-        Button(
-            onClick = onBackToLogin,
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(buttonHeight)
-                .focusRequester(buttonFocusRequester)
+                .fillMaxSize()
+                .padding(padding),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(text = "Kembali ke Login", fontSize = bodySize)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = cardMaxWidth),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(if (isTvDevice) 32.dp else 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = "Akun sudah expired",
+                        fontSize = titleSize,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "Silahkan perpanjang / hubungi admin",
+                        fontSize = bodySize,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+
+                    if (username.isNotBlank()) {
+                        Text(
+                            text = "Username: $username",
+                            fontSize = bodySize,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    if (expiresAt.isNotBlank()) {
+                        Text(
+                            text = "Expires at: $expiresAt",
+                            fontSize = bodySize,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = onBackToLogin,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(buttonHeight)
+                            .focusRequester(buttonFocusRequester)
+                    ) {
+                        Text(text = "Kembali ke Login", fontSize = bodySize)
+                    }
+                }
+            }
         }
     }
 }
