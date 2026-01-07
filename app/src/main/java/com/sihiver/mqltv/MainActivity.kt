@@ -80,6 +80,58 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+    private var expiryWatcherJob: Job? = null
+
+    private fun startExpiryWatcher() {
+        expiryWatcherJob?.cancel()
+        expiryWatcherJob = lifecycleScope.launch {
+            while (true) {
+                if (!AuthRepository.isLoggedIn(this@MainActivity)) {
+                    startActivity(
+                        Intent(this@MainActivity, LoginActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.isExpiredNow(this@MainActivity)) {
+                    startActivity(
+                        Intent(this@MainActivity, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.probeExpiredFromPlaylistUrl(this@MainActivity)) {
+                    startActivity(
+                        Intent(this@MainActivity, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.probeExpiredFromLoginIfNeeded(this@MainActivity)) {
+                    startActivity(
+                        Intent(this@MainActivity, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                delay(30_000)
+            }
+        }
+    }
+
+    private fun stopExpiryWatcher() {
+        expiryWatcherJob?.cancel()
+        expiryWatcherJob = null
+    }
+
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -499,6 +551,12 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Reload channels when returning to this activity
         ChannelRepository.loadChannels(this)
+        startExpiryWatcher()
+    }
+
+    override fun onPause() {
+        stopExpiryWatcher()
+        super.onPause()
     }
 }
 

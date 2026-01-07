@@ -1,6 +1,7 @@
 package com.sihiver.mqltv
 
 import android.content.pm.ActivityInfo
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
@@ -57,7 +58,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sihiver.mqltv.model.Channel
+import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -84,6 +90,58 @@ class PlayerActivityVLC : ComponentActivity() {
     private val selectedCategory = mutableStateOf("all") // all, favorites, recent, or category name
     private val selectedSidebarIndex = mutableStateOf(0)
 
+    private var expiryWatcherJob: Job? = null
+
+    private fun startExpiryWatcher() {
+        expiryWatcherJob?.cancel()
+        expiryWatcherJob = lifecycleScope.launch {
+            while (true) {
+                if (!AuthRepository.isLoggedIn(this@PlayerActivityVLC)) {
+                    startActivity(
+                        Intent(this@PlayerActivityVLC, LoginActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.isExpiredNow(this@PlayerActivityVLC)) {
+                    startActivity(
+                        Intent(this@PlayerActivityVLC, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.probeExpiredFromPlaylistUrl(this@PlayerActivityVLC)) {
+                    startActivity(
+                        Intent(this@PlayerActivityVLC, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.probeExpiredFromLoginIfNeeded(this@PlayerActivityVLC)) {
+                    startActivity(
+                        Intent(this@PlayerActivityVLC, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                delay(30_000)
+            }
+        }
+    }
+
+    private fun stopExpiryWatcher() {
+        expiryWatcherJob?.cancel()
+        expiryWatcherJob = null
+    }
+
     private data class VideoSettings(
         val orientation: String,
         val acceleration: String,
@@ -97,6 +155,16 @@ class PlayerActivityVLC : ComponentActivity() {
             acceleration = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)",
             aspectRatio = prefs.getString("aspect_ratio", "Fit") ?: "Fit"
         )
+    }
+
+    override fun onResume() {
+        super.onResume()
+        startExpiryWatcher()
+    }
+
+    override fun onPause() {
+        stopExpiryWatcher()
+        super.onPause()
     }
 
     private fun applyRequestedOrientation(setting: String) {
@@ -192,6 +260,25 @@ class PlayerActivityVLC : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         android.util.Log.d("PlayerActivityVLC", "onCreate - using VLC player")
+
+        // Safety gate
+        if (!AuthRepository.isLoggedIn(this)) {
+            startActivity(
+                Intent(this, LoginActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            finish()
+            return
+        }
+
+        if (AuthRepository.isExpiredNow(this)) {
+            startActivity(
+                Intent(this, ExpiredActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            finish()
+            return
+        }
         
         val settings = readVideoSettings()
         applyRequestedOrientation(settings.orientation)

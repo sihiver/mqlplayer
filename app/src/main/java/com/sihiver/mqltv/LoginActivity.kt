@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -57,13 +58,29 @@ class LoginActivity : ComponentActivity() {
 
         // If already logged in, jump straight into app
         if (AuthRepository.isLoggedIn(this)) {
-            if (AuthRepository.isExpiredNow(this)) {
-                startActivity(Intent(this, ExpiredActivity::class.java))
+            lifecycleScope.launch {
+                // If user got renewed server-side, playlist may be accessible again.
+                // Probe once to clear cached expired flag.
+                try {
+                    AuthRepository.probeExpiredFromPlaylistUrl(this@LoginActivity)
+                } catch (_: Exception) {
+                }
+
+                if (AuthRepository.isExpiredNow(this@LoginActivity)) {
+                    startActivity(
+                        Intent(this@LoginActivity, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                startActivity(
+                    Intent(this@LoginActivity, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
                 finish()
-                return
             }
-            startActivity(Intent(this, MainActivity::class.java))
-            finish()
             return
         }
 
@@ -185,6 +202,8 @@ class LoginActivity : ComponentActivity() {
 
                                 when (result) {
                                     is LoginResult.Success -> {
+                                        AuthRepository.savePassword(this@LoginActivity, password)
+
                                         // Persist login session
                                         AuthRepository.saveSession(
                                             context = this@LoginActivity,
@@ -216,6 +235,8 @@ class LoginActivity : ComponentActivity() {
                                     }
 
                                     is LoginResult.Expired -> {
+                                        AuthRepository.savePassword(this@LoginActivity, password)
+
                                         AuthRepository.saveSession(
                                             context = this@LoginActivity,
                                             serverBaseUrl = result.serverBaseUrl,
@@ -337,7 +358,7 @@ class LoginActivity : ComponentActivity() {
                 val data = json.optJSONObject("data")
 
                 val expiresAtRaw = data?.optString("expires_at", "")?.trim().orEmpty()
-                val expiresAtMillis = parseExpiresAtMillis(expiresAtRaw)
+                val expiresAtMillis = AuthRepository.parseExpiresAtMillis(expiresAtRaw)
                 val isExpiredServer = data?.optBoolean("is_expired", false) ?: false
                 val daysRemaining = data?.optInt("days_remaining", 0) ?: 0
 
@@ -386,7 +407,7 @@ class LoginActivity : ComponentActivity() {
             }
 
             val expiresAtRaw = data.optString("expires_at", "").trim()
-            val expiresAtMillis = parseExpiresAtMillis(expiresAtRaw)
+            val expiresAtMillis = AuthRepository.parseExpiresAtMillis(expiresAtRaw)
             val isExpiredServer = data.optBoolean("is_expired", false)
             val daysRemaining = data.optInt("days_remaining", 0)
             val isExpired = isExpiredServer || daysRemaining <= 0 || (expiresAtMillis > 0L && System.currentTimeMillis() >= expiresAtMillis)
@@ -409,42 +430,4 @@ class LoginActivity : ComponentActivity() {
         }
     }
 
-    private fun parseExpiresAtMillis(raw: String): Long {
-        // Example: 2026-02-05T23:54:21.924562699+07:00
-        // SimpleDateFormat can parse milliseconds (SSS), so truncate nanos -> millis.
-        return try {
-            if (raw.isBlank()) return 0L
-            val normalized = normalizeToMillisIso(raw)
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", java.util.Locale.US)
-            sdf.parse(normalized)?.time ?: 0L
-        } catch (_: Exception) {
-            0L
-        }
-    }
-
-    private fun normalizeToMillisIso(raw: String): String {
-        val dotIndex = raw.indexOf('.')
-        if (dotIndex == -1) {
-            // If no fractional seconds, inject .000 before timezone
-            val tzIndex = raw.lastIndexOf('+').takeIf { it > 0 } ?: raw.lastIndexOf('-').takeIf { it > 0 } ?: -1
-            return if (tzIndex > 0) {
-                raw.substring(0, tzIndex) + ".000" + raw.substring(tzIndex)
-            } else {
-                raw + ".000+00:00"
-            }
-        }
-
-        // Has fractional seconds; keep only 3 digits after dot
-        val afterDot = raw.substring(dotIndex + 1)
-        val tzOffsetIndex = afterDot.indexOf('+').takeIf { it >= 0 }
-            ?: afterDot.indexOf('-').takeIf { it >= 0 }
-            ?: -1
-
-        if (tzOffsetIndex == -1) return raw
-
-        val fraction = afterDot.substring(0, tzOffsetIndex)
-        val tz = afterDot.substring(tzOffsetIndex)
-        val millis = (fraction + "000").take(3)
-        return raw.substring(0, dotIndex) + "." + millis + tz
-    }
 }

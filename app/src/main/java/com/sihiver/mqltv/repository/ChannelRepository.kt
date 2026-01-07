@@ -175,6 +175,22 @@ object ChannelRepository {
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
                 connection.readTimeout = 10000
+
+                val status = try {
+                    connection.responseCode
+                } catch (_: Exception) {
+                    -1
+                }
+
+                    if (status == 401 || status == 403 || status == 404) {
+                        android.util.Log.w("ChannelRepository", "Playlist refresh got HTTP $status (expired/invalid). Marking session expired.")
+                    AuthRepository.markExpiredServer(context)
+                    return@withContext
+                }
+                if (status !in 200..299) {
+                    android.util.Log.e("ChannelRepository", "Playlist refresh failed: HTTP $status")
+                    return@withContext
+                }
                 
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
                 val content = reader.readText()

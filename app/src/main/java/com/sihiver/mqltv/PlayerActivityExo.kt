@@ -1,6 +1,7 @@
 package com.sihiver.mqltv
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.Gravity
@@ -35,6 +36,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -43,9 +45,13 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.sihiver.mqltv.model.Channel
+import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 import okhttp3.OkHttpClient
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @UnstableApi
@@ -59,6 +65,58 @@ class PlayerActivityExo : ComponentActivity() {
     private var currentChannelIndex = mutableStateOf(0)
     private var showCategoryView = mutableStateOf(false)
     private var selectedCategory = mutableStateOf<String?>(null)
+
+    private var expiryWatcherJob: Job? = null
+
+    private fun startExpiryWatcher() {
+        expiryWatcherJob?.cancel()
+        expiryWatcherJob = lifecycleScope.launch {
+            while (true) {
+                if (!AuthRepository.isLoggedIn(this@PlayerActivityExo)) {
+                    startActivity(
+                        Intent(this@PlayerActivityExo, LoginActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.isExpiredNow(this@PlayerActivityExo)) {
+                    startActivity(
+                        Intent(this@PlayerActivityExo, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.probeExpiredFromPlaylistUrl(this@PlayerActivityExo)) {
+                    startActivity(
+                        Intent(this@PlayerActivityExo, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                if (AuthRepository.probeExpiredFromLoginIfNeeded(this@PlayerActivityExo)) {
+                    startActivity(
+                        Intent(this@PlayerActivityExo, ExpiredActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    finish()
+                    return@launch
+                }
+
+                delay(30_000)
+            }
+        }
+    }
+
+    private fun stopExpiryWatcher() {
+        expiryWatcherJob?.cancel()
+        expiryWatcherJob = null
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,6 +171,25 @@ class PlayerActivityExo : ComponentActivity() {
                 finish()
             }
         })
+
+        // Safety gate
+        if (!AuthRepository.isLoggedIn(this)) {
+            startActivity(
+                Intent(this, LoginActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            finish()
+            return
+        }
+
+        if (AuthRepository.isExpiredNow(this)) {
+            startActivity(
+                Intent(this, ExpiredActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            finish()
+            return
+        }
 
         // Create root frame layout
         val rootLayout = FrameLayout(this).apply {
@@ -198,6 +275,16 @@ class PlayerActivityExo : ComponentActivity() {
         // Get channel ID from intent
         channelId = intent.getIntExtra("CHANNEL_ID", -1)
         android.util.Log.d("PlayerActivityExo", "Received channel ID: $channelId")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        startExpiryWatcher()
+    }
+
+    override fun onPause() {
+        stopExpiryWatcher()
+        super.onPause()
     }
 
     override fun onStart() {
@@ -327,6 +414,21 @@ class PlayerActivityExo : ComponentActivity() {
                                     ).show()
                                 }
                                 return
+                            }
+
+                            // If server denies stream with HTTP 403, treat as expired access.
+                            if (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+                                val hasHttp403 = generateSequence<Throwable>(error) { it.cause }
+                                    .any { it is HttpDataSource.InvalidResponseCodeException && it.responseCode == 403 }
+
+                                if (hasHttp403) {
+                                    startActivity(
+                                        Intent(this@PlayerActivityExo, ExpiredActivity::class.java)
+                                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                    finish()
+                                    return
+                                }
                             }
                             
                             // Handle decoder errors specifically

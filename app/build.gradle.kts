@@ -89,6 +89,9 @@ dependencies {
     
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Encrypted storage for sensitive credentials
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     
     // VLC for Android - libVLC
     implementation("org.videolan.android:libvlc-all:3.6.0")
