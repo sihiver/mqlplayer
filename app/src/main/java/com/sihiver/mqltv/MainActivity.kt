@@ -73,6 +73,7 @@ import androidx.compose.material3.Text as Material3Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.sihiver.mqltv.model.Channel
+import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
 import kotlinx.coroutines.Job
@@ -82,6 +83,12 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (!AuthRepository.isLoggedIn(this)) {
+            startActivity(Intent(this, LoginActivity::class.java))
+            finish()
+            return
+        }
         
         // Make status bar transparent with light icons (for dark theme)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
@@ -223,6 +230,19 @@ class MainActivity : ComponentActivity() {
                                         "Playlist cleared",
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
+                                },
+                                onLogout = {
+                                    AuthRepository.clearSession(this@MainActivity)
+                                    ChannelRepository.clearPlaylistUrls(this@MainActivity)
+
+                                    android.widget.Toast.makeText(
+                                        this@MainActivity,
+                                        "Logged out",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+
+                                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                                    finish()
                                 }
                             )
                         }
@@ -491,7 +511,10 @@ fun CenterMessage(message: String) {
 }
 
 @Composable
-fun SettingsScreen(onClearPlaylist: () -> Unit) {
+fun SettingsScreen(
+    onClearPlaylist: () -> Unit,
+    onLogout: () -> Unit,
+) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("video_settings", Context.MODE_PRIVATE)
 
@@ -686,6 +709,38 @@ fun SettingsScreen(onClearPlaylist: () -> Unit) {
             ) {
                 Material3Text(
                     text = "Clear Playlist",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    modifier = Modifier.weight(1f)
+                )
+                Material3Text(
+                    text = "›",
+                    fontSize = 24.sp,
+                    color = Color(0xFFE50914)
+                )
+            }
+        }
+
+        // Account Section
+        Material3Text(
+            text = "Account",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFF00BCD4),
+            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+        )
+
+        FocusableSettingsCard(
+            onActivate = { onLogout() }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Material3Text(
+                    text = "Logout",
                     fontSize = 16.sp,
                     color = Color.White,
                     modifier = Modifier.weight(1f)

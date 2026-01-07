@@ -51,8 +51,7 @@
         {
             "label": "Install & Run Debug",
             "type": "shell",
-            "command": "./gradlew",
-            "args": ["installDebug"],
+            "command": "./install-run-debug.sh",
             "group": "build",
             "presentation": {
                 "echo": true,
