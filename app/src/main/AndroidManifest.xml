@@ -42,6 +42,11 @@
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize">
         </activity>
+
+        <activity
+            android:name=".ExpiredActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
         
         <activity
             android:name=".PlayerActivity"

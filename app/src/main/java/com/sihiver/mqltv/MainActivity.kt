@@ -89,6 +89,14 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
+
+        // Async-ish check (before UI render): if account expired, block access.
+        lifecycleScope.launch {
+            if (AuthRepository.isExpiredNow(this@MainActivity)) {
+                startActivity(Intent(this@MainActivity, ExpiredActivity::class.java))
+                finish()
+            }
+        }
         
         // Make status bar transparent with light icons (for dark theme)
         window.statusBarColor = android.graphics.Color.TRANSPARENT

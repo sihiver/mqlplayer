@@ -57,6 +57,11 @@ class LoginActivity : ComponentActivity() {
 
         // If already logged in, jump straight into app
         if (AuthRepository.isLoggedIn(this)) {
+            if (AuthRepository.isExpiredNow(this)) {
+                startActivity(Intent(this, ExpiredActivity::class.java))
+                finish()
+                return
+            }
             startActivity(Intent(this, MainActivity::class.java))
             finish()
             return
@@ -186,6 +191,9 @@ class LoginActivity : ComponentActivity() {
                                             serverBaseUrl = result.serverBaseUrl,
                                             username = result.username,
                                             playlistUrl = result.playlistUrl,
+                                            expiresAtRaw = result.expiresAtRaw,
+                                            expiresAtMillis = result.expiresAtMillis,
+                                            isExpiredServer = result.isExpired,
                                         )
 
                                         // Use playlist URL from API as the source for channel refresh
@@ -193,13 +201,39 @@ class LoginActivity : ComponentActivity() {
                                         ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
 
                                         isLoading = false
-                                        startActivity(Intent(this@LoginActivity, MainActivity::class.java))
-                                        finish()
+                                        if (result.isExpired) {
+                                            startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
+                                            finish()
+                                        } else {
+                                            startActivity(Intent(this@LoginActivity, MainActivity::class.java))
+                                            finish()
+                                        }
                                     }
 
                                     is LoginResult.Error -> {
                                         isLoading = false
                                         errorMessage = result.message
+                                    }
+
+                                    is LoginResult.Expired -> {
+                                        AuthRepository.saveSession(
+                                            context = this@LoginActivity,
+                                            serverBaseUrl = result.serverBaseUrl,
+                                            username = result.username,
+                                            playlistUrl = result.playlistUrl,
+                                            expiresAtRaw = result.expiresAtRaw,
+                                            expiresAtMillis = result.expiresAtMillis,
+                                            isExpiredServer = true,
+                                        )
+
+                                        if (result.playlistUrl.isNotBlank()) {
+                                            ChannelRepository.clearPlaylistUrls(this@LoginActivity)
+                                            ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
+                                        }
+
+                                        isLoading = false
+                                        startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
+                                        finish()
                                     }
                                 }
                             }
@@ -239,6 +273,18 @@ class LoginActivity : ComponentActivity() {
             val serverBaseUrl: String,
             val username: String,
             val playlistUrl: String,
+            val expiresAtRaw: String,
+            val expiresAtMillis: Long,
+            val isExpired: Boolean,
+        ) : LoginResult()
+
+        data class Expired(
+            val serverBaseUrl: String,
+            val username: String,
+            val expiresAtRaw: String,
+            val expiresAtMillis: Long,
+            val message: String,
+            val playlistUrl: String = "",
         ) : LoginResult()
 
         data class Error(val message: String) : LoginResult()
@@ -280,11 +326,51 @@ class LoginActivity : ComponentActivity() {
                 ""
             }
 
-            if (status !in 200..299) {
-                return@withContext LoginResult.Error("HTTP $status: $body")
+            val json = try {
+                if (body.isNotBlank()) JSONObject(body) else JSONObject()
+            } catch (_: Exception) {
+                JSONObject()
             }
 
-            val json = JSONObject(body)
+            if (status !in 200..299) {
+                val message = json.optString("message", "").ifBlank { "HTTP $status" }
+                val data = json.optJSONObject("data")
+
+                val expiresAtRaw = data?.optString("expires_at", "")?.trim().orEmpty()
+                val expiresAtMillis = parseExpiresAtMillis(expiresAtRaw)
+                val isExpiredServer = data?.optBoolean("is_expired", false) ?: false
+                val daysRemaining = data?.optInt("days_remaining", 0) ?: 0
+
+                val playlistPath = data?.optString("playlist_url", "")?.trim().orEmpty()
+                val playlistUrl = if (playlistPath.startsWith("http://") || playlistPath.startsWith("https://")) {
+                    playlistPath
+                } else if (playlistPath.isNotBlank()) {
+                    val normalized = if (playlistPath.startsWith("/")) playlistPath else "/$playlistPath"
+                    "$serverBaseUrl$normalized"
+                } else {
+                    ""
+                }
+
+                val looksExpired =
+                    status == 403 ||
+                        isExpiredServer ||
+                        daysRemaining <= 0 ||
+                        message.contains("expired", ignoreCase = true) ||
+                        message.contains("kadaluarsa", ignoreCase = true)
+
+                if (looksExpired) {
+                    return@withContext LoginResult.Expired(
+                        serverBaseUrl = serverBaseUrl,
+                        username = username,
+                        expiresAtRaw = expiresAtRaw,
+                        expiresAtMillis = expiresAtMillis,
+                        message = message,
+                        playlistUrl = playlistUrl,
+                    )
+                }
+
+                return@withContext LoginResult.Error("HTTP $status: $body")
+            }
             val code = json.optInt("code", -1)
             if (code != 0) {
                 val message = json.optString("message", "Login gagal")
@@ -299,6 +385,12 @@ class LoginActivity : ComponentActivity() {
                 return@withContext LoginResult.Error("Response tidak valid: playlist_url kosong")
             }
 
+            val expiresAtRaw = data.optString("expires_at", "").trim()
+            val expiresAtMillis = parseExpiresAtMillis(expiresAtRaw)
+            val isExpiredServer = data.optBoolean("is_expired", false)
+            val daysRemaining = data.optInt("days_remaining", 0)
+            val isExpired = isExpiredServer || daysRemaining <= 0 || (expiresAtMillis > 0L && System.currentTimeMillis() >= expiresAtMillis)
+
             val fullPlaylistUrl = if (playlistPath.startsWith("http://") || playlistPath.startsWith("https://")) {
                 playlistPath
             } else {
@@ -310,7 +402,49 @@ class LoginActivity : ComponentActivity() {
                 serverBaseUrl = serverBaseUrl,
                 username = username,
                 playlistUrl = fullPlaylistUrl,
+                expiresAtRaw = expiresAtRaw,
+                expiresAtMillis = expiresAtMillis,
+                isExpired = isExpired,
             )
         }
+    }
+
+    private fun parseExpiresAtMillis(raw: String): Long {
+        // Example: 2026-02-05T23:54:21.924562699+07:00
+        // SimpleDateFormat can parse milliseconds (SSS), so truncate nanos -> millis.
+        return try {
+            if (raw.isBlank()) return 0L
+            val normalized = normalizeToMillisIso(raw)
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", java.util.Locale.US)
+            sdf.parse(normalized)?.time ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    private fun normalizeToMillisIso(raw: String): String {
+        val dotIndex = raw.indexOf('.')
+        if (dotIndex == -1) {
+            // If no fractional seconds, inject .000 before timezone
+            val tzIndex = raw.lastIndexOf('+').takeIf { it > 0 } ?: raw.lastIndexOf('-').takeIf { it > 0 } ?: -1
+            return if (tzIndex > 0) {
+                raw.substring(0, tzIndex) + ".000" + raw.substring(tzIndex)
+            } else {
+                raw + ".000+00:00"
+            }
+        }
+
+        // Has fractional seconds; keep only 3 digits after dot
+        val afterDot = raw.substring(dotIndex + 1)
+        val tzOffsetIndex = afterDot.indexOf('+').takeIf { it >= 0 }
+            ?: afterDot.indexOf('-').takeIf { it >= 0 }
+            ?: -1
+
+        if (tzOffsetIndex == -1) return raw
+
+        val fraction = afterDot.substring(0, tzOffsetIndex)
+        val tz = afterDot.substring(tzOffsetIndex)
+        val millis = (fraction + "000").take(3)
+        return raw.substring(0, dotIndex) + "." + millis + tz
     }
 }
