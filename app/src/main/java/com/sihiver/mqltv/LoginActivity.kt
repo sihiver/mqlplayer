@@ -103,7 +103,7 @@ class LoginActivity : ComponentActivity() {
                 val serverBaseUrl by remember {
                     mutableStateOf(
                         AuthRepository.getServerBaseUrl(this@LoginActivity)
-                            .ifBlank { "http://192.168.0.2:8080" }
+                            .ifBlank { "http://192.168.15.10:8080" }
                     )
                 }
                 var username by remember { mutableStateOf("") }

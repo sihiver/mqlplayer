@@ -3,6 +3,8 @@ package com.sihiver.mqltv.repository
 import android.content.Context
 import com.sihiver.mqltv.model.Channel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -16,48 +18,38 @@ object ChannelRepository {
     private var nextId = 100
     private var sampleChannelsCleared = false
 
+    private val _channelsRevision = MutableStateFlow(0)
+    val channelsRevision: StateFlow<Int> = _channelsRevision
+
     private const val PREFS_APP = "mqltv_prefs"
     private const val KEY_PLAYLIST_URL_LEGACY = "playlist_url"
     private const val KEY_PLAYLIST_URLS = "playlist_urls"
+
+    // Default embedded playlist URL (always kept unless user clears samples).
+    private const val DEFAULT_SAMPLE_PLAYLIST_URL = "http://192.168.15.10/playlist.m3u"
     
     fun getSampleChannels(): List<Channel> {
         if (sampleChannelsCleared) return emptyList()
         if (sampleChannels.isNotEmpty()) return sampleChannels
-        
-        sampleChannels.addAll(
-        listOf(
-            // Local HDMI Capture Stream - Ganti dengan IP dan port server HLS Anda
-            Channel(
-                id = 1,
-                name = "Event",
-                url = "http://192.168.18.54:8080/hls/stream.m3u8",
-                category = "Local",
-                logo = ""
-            ),
-            // Sample IPTV channels
-            Channel(
-                id = 2,
-                name = "Sintel",
-                url = "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8",
-                category = "Demo",
-                logo = "https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Sintel_poster.jpg/220px-Sintel_poster.jpg"
-            ),
-            Channel(
-                id = 3,
-                name = "Tears of Steel",
-                url = "https://bitdash-a.akamaihd.net/content/MI201109210084_1/m3u8s/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8",
-                category = "Demo",
-                logo = "https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Tears_of_Steel_poster.jpg/220px-Tears_of_Steel_poster.jpg"
-            ),
-            Channel(
-                id = 4,
-                name = "Elephants Dream",
-                url = "https://test-streams.mux.dev/elephants_dream.m3u8",
-                category = "Demo",
-                logo = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Elephants_Dream_s5_proog.jpg/220px-Elephants_Dream_s5_proog.jpg"
-            ),
-        ))
-        return sampleChannels
+
+        // Sample channels are intentionally empty.
+        // The app now uses a default sample *playlist URL* on first run and imports channels from it.
+        return emptyList()
+    }
+
+    /**
+     * Ensures a default playlist URL exists for first-time users.
+     *
+     * Returns true if the default URL was added, false otherwise.
+     */
+    fun ensureDefaultPlaylistUrl(context: Context): Boolean {
+        if (sampleChannelsCleared) return false
+
+        val existing = getPlaylistUrls(context)
+        if (existing.contains(DEFAULT_SAMPLE_PLAYLIST_URL)) return false
+
+        addPlaylistUrl(context, DEFAULT_SAMPLE_PLAYLIST_URL)
+        return true
     }
     
     fun getAllChannels(): List<Channel> {
@@ -103,7 +95,7 @@ object ChannelRepository {
                 
                 if (line.startsWith("#EXTINF:")) {
                     // Parse EXTINF line
-                    currentName = line.substringAfter(",").trim()
+                    val afterCommaRaw = line.substringAfter(",", "").trim()
                     
                     // Extract tvg-logo
                     if (line.contains("tvg-logo=\"")) {
@@ -116,6 +108,41 @@ object ChannelRepository {
                         currentGroup = line.substringAfter("group-title=\"")
                             .substringBefore("\"")
                     }
+
+                    // Some playlists put the media URL on the same line as EXTINF.
+                    val httpIndex = when {
+                        afterCommaRaw.contains("http://") -> afterCommaRaw.indexOf("http://")
+                        afterCommaRaw.contains("https://") -> afterCommaRaw.indexOf("https://")
+                        else -> -1
+                    }
+                    if (httpIndex >= 0) {
+                        val namePart = afterCommaRaw.substring(0, httpIndex).trim()
+                        val urlPart = afterCommaRaw.substring(httpIndex).trim()
+                        val normalizedSource = source.trim()
+                        val finalName = namePart.ifBlank { "Imported" }
+                        val alreadyExists = customChannels.any { it.url == urlPart && it.source == normalizedSource }
+                        if (!alreadyExists) {
+                            addChannel(
+                                Channel(
+                                    id = 0,
+                                    name = finalName,
+                                    url = urlPart,
+                                    logo = currentLogo,
+                                    category = currentGroup,
+                                    source = normalizedSource
+                                )
+                            )
+                            count++
+                        }
+
+                        // Reset for next channel
+                        currentName = ""
+                        currentLogo = ""
+                        currentGroup = "Imported"
+                        continue
+                    }
+
+                    currentName = afterCommaRaw
                 } else if (line.isNotEmpty() && !line.startsWith("#")) {
                     // This is a URL line
                     if (currentName.isNotEmpty()) {
@@ -209,7 +236,44 @@ object ChannelRepository {
                     if (line.startsWith("#EXTINF:")) {
                         val extinfParts = line.split(",", limit = 2)
                         if (extinfParts.size > 1) {
-                            currentName = extinfParts[1].trim()
+                            val afterCommaRaw = extinfParts[1].trim()
+
+                            // Some playlists put the media URL on the same line as EXTINF.
+                            val httpIndex = when {
+                                afterCommaRaw.contains("http://") -> afterCommaRaw.indexOf("http://")
+                                afterCommaRaw.contains("https://") -> afterCommaRaw.indexOf("https://")
+                                else -> -1
+                            }
+                            if (httpIndex >= 0) {
+                                val namePart = afterCommaRaw.substring(0, httpIndex).trim()
+                                val urlPart = afterCommaRaw.substring(httpIndex).trim()
+                                val finalName = namePart.ifBlank { "Imported" }
+
+                                val logoRegex = "tvg-logo=\"([^\"]+)\"".toRegex()
+                                val logoMatch = logoRegex.find(line)
+                                currentLogo = logoMatch?.groupValues?.get(1) ?: ""
+
+                                val groupRegex = "group-title=\"([^\"]+)\"".toRegex()
+                                val groupMatch = groupRegex.find(line)
+                                currentGroup = groupMatch?.groupValues?.get(1) ?: "Imported"
+
+                                newChannels.add(
+                                    Channel(
+                                        id = 0,
+                                        name = finalName,
+                                        url = urlPart,
+                                        category = currentGroup,
+                                        logo = currentLogo,
+                                        source = url
+                                    )
+                                )
+                                currentName = ""
+                                currentLogo = ""
+                                currentGroup = "Imported"
+                                continue
+                            }
+
+                            currentName = afterCommaRaw
                         }
                         
                         val logoRegex = "tvg-logo=\"([^\"]+)\"".toRegex()
@@ -324,6 +388,8 @@ object ChannelRepository {
         editor.putInt("next_id", nextId)
         editor.putBoolean("samples_cleared", sampleChannelsCleared)
         editor.apply()
+
+        _channelsRevision.value = _channelsRevision.value + 1
     }
     
     fun loadChannels(context: Context) {

@@ -159,6 +159,10 @@ class MainActivity : ComponentActivity() {
         
         // Load saved channels
         ChannelRepository.loadChannels(this)
+
+        // First run: if there are no channels and no playlist saved yet,
+        // add the default sample playlist URL so it can be imported.
+        ChannelRepository.ensureDefaultPlaylistUrl(this)
         
         // Auto-refresh playlists on launch
         lifecycleScope.launch {
@@ -1018,6 +1022,7 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     var refreshKey by remember { mutableStateOf(0) }
     var showAllCategory by remember { mutableStateOf<String?>(null) }
     var showAllRecent by remember { mutableStateOf(false) }
+    val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
     val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
     val initialFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
@@ -1037,7 +1042,7 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     }
     
     // Refresh channels
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(refreshKey, channelsRevision) {
         ChannelRepository.loadChannels(context)
         ChannelRepository.loadRecentlyWatched(context)
         ChannelRepository.loadFavorites(context)
