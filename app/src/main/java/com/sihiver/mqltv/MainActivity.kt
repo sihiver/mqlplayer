@@ -296,7 +296,7 @@ class MainActivity : ComponentActivity() {
                                     ).show()
                                 },
                                 onLogout = {
-                                    AuthRepository.clearSession(this@MainActivity)
+                                    AuthRepository.logout(this@MainActivity)
                                     ChannelRepository.clearPlaylistUrls(this@MainActivity)
 
                                     android.widget.Toast.makeText(

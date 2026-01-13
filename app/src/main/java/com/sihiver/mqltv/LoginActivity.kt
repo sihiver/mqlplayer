@@ -106,8 +106,8 @@ class LoginActivity : ComponentActivity() {
                             .ifBlank { "http://192.168.15.10:8080" }
                     )
                 }
-                var username by remember { mutableStateOf("") }
-                var password by remember { mutableStateOf("") }
+                var username by remember { mutableStateOf(AuthRepository.getUsername(this@LoginActivity)) }
+                var password by remember { mutableStateOf(AuthRepository.getPassword(this@LoginActivity)) }
 
                 var isLoading by remember { mutableStateOf(false) }
                 var errorMessage by remember { mutableStateOf("") }

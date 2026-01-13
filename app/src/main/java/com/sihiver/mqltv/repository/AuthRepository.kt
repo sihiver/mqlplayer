@@ -392,6 +392,23 @@ object AuthRepository {
             .apply()
     }
 
+    /**
+     * Logs out by clearing session/expiry state, while keeping remembered credentials
+     * (username/server base URL and encrypted password) so user doesn't need to retype.
+     */
+    fun logout(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(KEY_LOGGED_IN, false)
+            .remove(KEY_PLAYLIST_URL)
+            .remove(KEY_EXPIRES_AT_RAW)
+            .remove(KEY_EXPIRES_AT_MILLIS)
+            .remove(KEY_IS_EXPIRED_SERVER)
+            .remove(KEY_LAST_STATUS_CHECKED_AT)
+            .remove(KEY_LAST_LOGIN_PROBE_AT)
+            .apply()
+    }
+
     fun clearSession(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
         prefs.edit().clear().apply()

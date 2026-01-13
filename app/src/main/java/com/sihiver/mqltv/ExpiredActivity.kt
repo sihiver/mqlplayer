@@ -42,7 +42,7 @@ class ExpiredActivity : ComponentActivity() {
                     username = AuthRepository.getUsername(this@ExpiredActivity),
                     expiresAt = AuthRepository.getExpiresAtRaw(this@ExpiredActivity),
                     onBackToLogin = {
-                        AuthRepository.clearSession(this@ExpiredActivity)
+                        AuthRepository.logout(this@ExpiredActivity)
                         startActivity(Intent(this@ExpiredActivity, LoginActivity::class.java))
                         finish()
                     }
