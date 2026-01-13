@@ -196,7 +196,7 @@ object ChannelRepository {
         return withContext(Dispatchers.IO) {
             try {
                 android.util.Log.d("ChannelRepository", "Refreshing playlist from server: $url")
-                
+
                 // Fetch new playlist from server
                 val connection = URL(url).openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
@@ -209,8 +209,11 @@ object ChannelRepository {
                     -1
                 }
 
-                    if (status == 401 || status == 403 || status == 404) {
-                        android.util.Log.w("ChannelRepository", "Playlist refresh got HTTP $status (expired/invalid). Marking session expired.")
+                if (status == 401 || status == 403 || status == 404) {
+                    android.util.Log.w(
+                        "ChannelRepository",
+                        "Playlist refresh got HTTP $status (expired/invalid). Marking session expired."
+                    )
                     AuthRepository.markExpiredServer(context)
                     return@withContext
                 }
@@ -218,21 +221,21 @@ object ChannelRepository {
                     android.util.Log.e("ChannelRepository", "Playlist refresh failed: HTTP $status")
                     return@withContext
                 }
-                
+
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
                 val content = reader.readText()
                 reader.close()
-                
+
                 // Parse new playlist
                 val newChannels = mutableListOf<Channel>()
                 val lines = content.lines()
                 var currentName = ""
                 var currentLogo = ""
                 var currentGroup = "Imported"
-                
+
                 for (i in lines.indices) {
                     val line = lines[i].trim()
-                    
+
                     if (line.startsWith("#EXTINF:")) {
                         val extinfParts = line.split(",", limit = 2)
                         if (extinfParts.size > 1) {
@@ -275,11 +278,11 @@ object ChannelRepository {
 
                             currentName = afterCommaRaw
                         }
-                        
+
                         val logoRegex = "tvg-logo=\"([^\"]+)\"".toRegex()
                         val logoMatch = logoRegex.find(line)
                         currentLogo = logoMatch?.groupValues?.get(1) ?: ""
-                        
+
                         val groupRegex = "group-title=\"([^\"]+)\"".toRegex()
                         val groupMatch = groupRegex.find(line)
                         currentGroup = groupMatch?.groupValues?.get(1) ?: "Imported"
@@ -298,40 +301,76 @@ object ChannelRepository {
                         currentLogo = ""
                     }
                 }
-                
+
                 // Compare with existing channels and update
                 val existingChannels = customChannels.filter { it.source == url }
+
+                val newByUrl = newChannels.associateBy { it.url }
+                val existingByUrl = existingChannels.associateBy { it.url }
+
                 val channelsToRemove = mutableListOf<Channel>()
                 val channelsToAdd = mutableListOf<Channel>()
+                var updatedCount = 0
 
-                val newKeySet = newChannels.map { it.url }.toSet()
-                
-                // Find channels to remove (not in new playlist)
+                // Remove: exists locally but not on server anymore
                 for (existing in existingChannels) {
-                    val stillExists = newKeySet.contains(existing.url)
-                    if (!stillExists) {
+                    if (!newByUrl.containsKey(existing.url)) {
                         channelsToRemove.add(existing)
-                        android.util.Log.d("ChannelRepository", "Channel removed from server: ${existing.name}")
+                        android.util.Log.d(
+                            "ChannelRepository",
+                            "Channel removed from server: ${existing.name} (${existing.url})"
+                        )
                     }
                 }
-                
-                // Find channels to add (new in playlist)
-                for (new in newChannels) {
-                    val alreadyExists = existingChannels.any { it.url == new.url }
+
+                // Add: exists on server but not locally
+                for (newCh in newChannels) {
+                    val alreadyExists = existingByUrl.containsKey(newCh.url)
                     if (!alreadyExists) {
-                        channelsToAdd.add(new.copy(id = nextId++))
-                        android.util.Log.d("ChannelRepository", "New channel from server: ${new.name}")
+                        channelsToAdd.add(newCh.copy(id = nextId++))
+                        android.util.Log.d(
+                            "ChannelRepository",
+                            "New channel from server: ${newCh.name} (${newCh.url})"
+                        )
                     }
                 }
-                
-                // Apply changes
-                customChannels.removeAll(channelsToRemove)
-                customChannels.addAll(channelsToAdd)
-                
-                // Save to persistent storage
-                saveChannels(context)
-                
-                android.util.Log.d("ChannelRepository", "Playlist refreshed: ${channelsToRemove.size} removed, ${channelsToAdd.size} added")
+
+                // Update metadata for channels that still exist (name/logo/category/drm)
+                // This is the key bugfix so UI updates even when URL membership doesn't change.
+                customChannels = customChannels.mapTo(mutableListOf()) { ch ->
+                    val server = if (ch.source == url) newByUrl[ch.url] else null
+                    if (server == null) {
+                        ch
+                    } else {
+                        val merged = ch.copy(
+                            name = server.name,
+                            logo = server.logo,
+                            category = server.category,
+                            // keep existing ID
+                            drmLicenseUrl = if (server.drmLicenseUrl.isNotBlank()) server.drmLicenseUrl else ch.drmLicenseUrl
+                        )
+                        if (merged != ch) updatedCount++
+                        merged
+                    }
+                }
+
+                // Apply add/remove
+                if (channelsToRemove.isNotEmpty()) {
+                    customChannels.removeAll(channelsToRemove)
+                }
+                if (channelsToAdd.isNotEmpty()) {
+                    customChannels.addAll(channelsToAdd)
+                }
+
+                val didChange = channelsToRemove.isNotEmpty() || channelsToAdd.isNotEmpty() || updatedCount > 0
+                if (didChange) {
+                    saveChannels(context)
+                }
+
+                android.util.Log.d(
+                    "ChannelRepository",
+                    "Playlist refreshed: ${channelsToRemove.size} removed, ${channelsToAdd.size} added, $updatedCount updated (saved=$didChange)"
+                )
             } catch (e: Exception) {
                 android.util.Log.e("ChannelRepository", "Error refreshing playlist", e)
             }

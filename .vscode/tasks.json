@@ -62,6 +62,32 @@
             "problemMatcher": ["$gradle"]
         },
         {
+            "label": "Start Android TV Emulator",
+            "type": "shell",
+            "command": "./start-tv-emulator.sh",
+            "isBackground": true,
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Install & Run Debug (TV Emulator)",
+            "type": "shell",
+            "command": "./install-run-tv-emulator.sh",
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": ["$gradle"]
+        },
+        {
             "label": "Clean Project",
             "type": "shell",
             "command": "./gradlew",

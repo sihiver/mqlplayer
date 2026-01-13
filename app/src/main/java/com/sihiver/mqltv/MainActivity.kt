@@ -31,13 +31,15 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.TextButton
@@ -79,6 +81,7 @@ import com.sihiver.mqltv.ui.theme.MQLTVTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 
+@androidx.media3.common.util.UnstableApi
 class MainActivity : ComponentActivity() {
     private var expiryWatcherJob: Job? = null
 
@@ -180,7 +183,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             MQLTVTheme {
                 var selectedTab by remember { mutableStateOf(0) }
-                var isRefreshing by remember { mutableStateOf(false) }
                 var showExitDialog by remember { mutableStateOf(false) }
                 val isTvDevice = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
 
@@ -218,20 +220,17 @@ class MainActivity : ComponentActivity() {
                 // Periodic refresh every 30 minutes
                 LaunchedEffect(Unit) {
                     while (true) {
-                        kotlinx.coroutines.delay(30 * 60 * 1000L) // 30 minutes
+                        delay(30 * 60 * 1000L) // 30 minutes
                         try {
                             val playlistUrls = ChannelRepository.getPlaylistUrls(this@MainActivity)
                             if (playlistUrls.isNotEmpty()) {
-                                isRefreshing = true
                                 playlistUrls.forEach { playlistUrl ->
                                     android.util.Log.d("MainActivity", "Periodic refresh from: $playlistUrl")
                                     ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
                                 }
-                                isRefreshing = false
                             }
                         } catch (e: Exception) {
                             android.util.Log.e("MainActivity", "Periodic refresh failed", e)
-                            isRefreshing = false
                         }
                     }
                 }
@@ -1026,7 +1025,11 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
     val initialFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
-    
+
+    // Manual refresh state (refresh button next to search)
+    var isRefreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
     // Listen to lifecycle events
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -1113,7 +1116,8 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                     color = Color.White
                 )
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
@@ -1121,6 +1125,46 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                         tint = Color.White,
                         modifier = Modifier.size(28.dp)
                     )
+
+                    // Refresh playlist button (next to search)
+                    if (isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh Playlist",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clickable {
+                                    if (isRefreshing) return@clickable
+                                    isRefreshing = true
+                                    scope.launch {
+                                        try {
+                                            val playlistUrls = ChannelRepository.getPlaylistUrls(context)
+                                            playlistUrls.forEach { playlistUrl ->
+                                                android.util.Log.d(
+                                                    "LiveChannelsScreen",
+                                                    "Manual refresh from: $playlistUrl"
+                                                )
+                                                ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
+                                            }
+                                            // force local list reload immediately
+                                            refreshKey++
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("LiveChannelsScreen", "Manual refresh failed", e)
+                                        } finally {
+                                            isRefreshing = false
+                                        }
+                                    }
+                                }
+                        )
+                    }
+
                     Icon(
                         imageVector = Icons.Default.Favorite,
                         contentDescription = "Favorites",
