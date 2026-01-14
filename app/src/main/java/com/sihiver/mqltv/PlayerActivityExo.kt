@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
@@ -12,7 +14,21 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -35,11 +51,19 @@ import kotlinx.coroutines.launch
 
 @UnstableApi
 class PlayerActivityExo : ComponentActivity() {
+
+    private companion object {
+        private const val CHANNEL_NUMBER_AUTOHIDE_MS = 1_500L
+    }
     
     private var exoPlayer: ExoPlayer? = null
     private var playerView: PlayerView? = null
     private var channelId: Int = -1
     private var currentChannelIndex = mutableStateOf(0)
+
+    private val channelNumberOverlay = mutableStateOf<Int?>(null)
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var hideChannelNumberRunnable: Runnable? = null
 
     private lateinit var channelListLauncher: ActivityResultLauncher<Intent>
 
@@ -93,6 +117,28 @@ class PlayerActivityExo : ComponentActivity() {
     private fun stopExpiryWatcher() {
         expiryWatcherJob?.cancel()
         expiryWatcherJob = null
+    }
+
+    private fun showChannelNumberTemporarily() {
+        val all = ChannelRepository.getAllChannels().ifEmpty {
+            ChannelRepository.loadChannels(this)
+            ChannelRepository.getAllChannels()
+        }
+        val index = all.indexOfFirst { it.id == channelId }
+        val numberToShow = if (index >= 0) index + 1 else channelId
+
+        channelNumberOverlay.value = numberToShow
+        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
+        hideChannelNumberRunnable = Runnable {
+            channelNumberOverlay.value = null
+        }
+        uiHandler.postDelayed(hideChannelNumberRunnable!!, CHANNEL_NUMBER_AUTOHIDE_MS)
+    }
+
+    override fun onDestroy() {
+        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
+        hideChannelNumberRunnable = null
+        super.onDestroy()
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -236,6 +282,17 @@ class PlayerActivityExo : ComponentActivity() {
 
         rootLayout.addView(playerView)
 
+        val overlayComposeView = ComposeView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setContent {
+                PlayerOverlayUi()
+            }
+        }
+        rootLayout.addView(overlayComposeView)
+
         setContentView(rootLayout)
 
         // Hide system UI for immersive experience
@@ -330,6 +387,7 @@ class PlayerActivityExo : ComponentActivity() {
             }
 
             android.util.Log.d("PlayerActivityExo", "Playing channel: ${channel.name}, URL: ${channel.url}")
+            showChannelNumberTemporarily()
 
             // Use default data source
             val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this)
@@ -565,6 +623,8 @@ class PlayerActivityExo : ComponentActivity() {
         try {
             channelId = channel.id
             currentChannelIndex.value = ChannelRepository.getAllChannels().indexOfFirst { it.id == channelId }
+
+            showChannelNumberTemporarily()
             
             android.util.Log.d("PlayerActivityExo", "Switching to channel: ${channel.name}, URL: ${channel.url}")
             
@@ -705,5 +765,30 @@ class PlayerActivityExo : ComponentActivity() {
             .setUri(streamUrl)
             .setMimeType(MimeTypes.APPLICATION_MPD)
             .build()
+    }
+
+    @Composable
+    private fun PlayerOverlayUi() {
+        val number = channelNumberOverlay.value
+        if (number != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.TopEnd
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        text = number.toString(),
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        fontSize = 18.sp
+                    )
+                }
+            }
+        }
     }
 }
