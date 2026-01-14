@@ -4,6 +4,8 @@ import android.content.pm.ActivityInfo
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -51,18 +53,26 @@ import org.videolan.libvlc.util.VLCVideoLayout
 
 class PlayerActivityVLC : ComponentActivity() {
 
+    private companion object {
+        private const val CHANNEL_NUMBER_AUTOHIDE_MS = 1_500L
+    }
+
     private var libVLC: LibVLC? = null
     private var vlcPlayer: MediaPlayer? = null
     private lateinit var videoLayout: VLCVideoLayout
     private var channelId: Int = -1
 
     private val currentChannelName = mutableStateOf("")
+    private val channelNumberOverlay = mutableStateOf<Int?>(null)
     private val isBuffering = mutableStateOf(true)
     private val bufferingPercent = mutableStateOf(0f)
     private val isVideoReady = mutableStateOf(false)
     private var savedAudioTrack: Int = -1
     private var pendingPlay = false
     private var isChangingChannel = false
+
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var hideChannelNumberRunnable: Runnable? = null
 
     private lateinit var channelListLauncher: ActivityResultLauncher<Intent>
 
@@ -116,6 +126,29 @@ class PlayerActivityVLC : ComponentActivity() {
     private fun stopExpiryWatcher() {
         expiryWatcherJob?.cancel()
         expiryWatcherJob = null
+    }
+
+    private fun showChannelNumberTemporarily() {
+        // Compute number by current playlist order; fallback to channelId.
+        val all = ChannelRepository.getAllChannels().ifEmpty {
+            ChannelRepository.loadChannels(this)
+            ChannelRepository.getAllChannels()
+        }
+        val index = all.indexOfFirst { it.id == channelId }
+        val numberToShow = if (index >= 0) index + 1 else channelId
+
+        channelNumberOverlay.value = numberToShow
+        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
+        hideChannelNumberRunnable = Runnable {
+            channelNumberOverlay.value = null
+        }
+        uiHandler.postDelayed(hideChannelNumberRunnable!!, CHANNEL_NUMBER_AUTOHIDE_MS)
+    }
+
+    override fun onDestroy() {
+        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
+        hideChannelNumberRunnable = null
+        super.onDestroy()
     }
 
     private data class VideoSettings(
@@ -361,6 +394,7 @@ class PlayerActivityVLC : ComponentActivity() {
             
             android.util.Log.d("PlayerActivityVLC", "Playing: ${ch.name}, URL: ${ch.url}")
             currentChannelName.value = ch.name
+            showChannelNumberTemporarily()
             
             val options = arrayListOf(
                 "--aout=opensles",
@@ -555,6 +589,7 @@ class PlayerActivityVLC : ComponentActivity() {
         // Update channel info
         channelId = ch.id
         currentChannelName.value = ch.name
+        showChannelNumberTemporarily()
         
         // Release SYNCHRONOUSLY di main thread
         try {
@@ -600,6 +635,7 @@ class PlayerActivityVLC : ComponentActivity() {
         // Update channel info
         channelId = ch.id
         currentChannelName.value = ch.name
+        showChannelNumberTemporarily()
         
         // Release SYNCHRONOUSLY di main thread
         try {
@@ -692,25 +728,24 @@ class PlayerActivityVLC : ComponentActivity() {
                 }
             }
         }
-        
-        if (currentChannelName.value.isNotEmpty()) {
+
+        val number = channelNumberOverlay.value
+        if (number != null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(16.dp),
-                contentAlignment = Alignment.TopStart
+                contentAlignment = Alignment.TopEnd
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.Black.copy(alpha = 0.6f)
-                    ),
-                    shape = RoundedCornerShape(8.dp)
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text(
-                        text = currentChannelName.value,
+                        text = number.toString(),
                         color = Color.White,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        fontSize = 14.sp
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        fontSize = 18.sp
                     )
                 }
             }
