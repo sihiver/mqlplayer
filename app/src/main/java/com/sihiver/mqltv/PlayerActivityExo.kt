@@ -6,6 +6,7 @@ import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
@@ -53,7 +54,6 @@ import kotlinx.coroutines.launch
 class PlayerActivityExo : ComponentActivity() {
 
     private companion object {
-        private const val CHANNEL_NUMBER_AUTOHIDE_MS = 1_500L
         private const val NUMERIC_INPUT_COMMIT_MS = 1_200L
     }
     
@@ -61,10 +61,8 @@ class PlayerActivityExo : ComponentActivity() {
     private var playerView: PlayerView? = null
     private var channelId: Int = -1
     private var currentChannelIndex = mutableStateOf(0)
-
-    private val channelNumberOverlay = mutableStateOf<Int?>(null)
+    private val numericInputDisplay = mutableStateOf("")
     private val uiHandler = Handler(Looper.getMainLooper())
-    private var hideChannelNumberRunnable: Runnable? = null
 
     private val numericChannelInput = StringBuilder()
     private var numericCommitRunnable: Runnable? = null
@@ -123,22 +121,6 @@ class PlayerActivityExo : ComponentActivity() {
         expiryWatcherJob = null
     }
 
-    private fun showChannelNumberTemporarily() {
-        val all = ChannelRepository.getAllChannels().ifEmpty {
-            ChannelRepository.loadChannels(this)
-            ChannelRepository.getAllChannels()
-        }
-        val index = all.indexOfFirst { it.id == channelId }
-        val numberToShow = if (index >= 0) index + 1 else channelId
-
-        channelNumberOverlay.value = numberToShow
-        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
-        hideChannelNumberRunnable = Runnable {
-            channelNumberOverlay.value = null
-        }
-        uiHandler.postDelayed(hideChannelNumberRunnable!!, CHANNEL_NUMBER_AUTOHIDE_MS)
-    }
-
     private fun digitFromKeyCode(keyCode: Int): Int? {
         return when (keyCode) {
             KeyEvent.KEYCODE_0 -> 0
@@ -172,9 +154,8 @@ class PlayerActivityExo : ComponentActivity() {
         numericChannelInput.append(digit)
         val typed = numericChannelInput.toString().toIntOrNull() ?: return
 
-        // Show typed number immediately (don't auto-hide while typing)
-        channelNumberOverlay.value = typed
-        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
+        // Show typed number
+        numericInputDisplay.value = typed.toString()
 
         numericCommitRunnable?.let(uiHandler::removeCallbacks)
         numericCommitRunnable = Runnable {
@@ -186,23 +167,17 @@ class PlayerActivityExo : ComponentActivity() {
     private fun commitNumericChannelSelection() {
         val typed = numericChannelInput.toString().toIntOrNull()
         numericChannelInput.setLength(0)
+        numericInputDisplay.value = ""
         numericCommitRunnable?.let(uiHandler::removeCallbacks)
         numericCommitRunnable = null
 
-        if (typed == null || typed <= 0) {
-            channelNumberOverlay.value = null
-            return
-        }
+        if (typed == null || typed <= 0) return
 
         ChannelRepository.loadChannels(this)
         val channels = ChannelRepository.getAllChannels()
         val index = typed - 1
         if (index !in channels.indices) {
             android.widget.Toast.makeText(this, "Channel $typed tidak ada", android.widget.Toast.LENGTH_SHORT).show()
-            // Hide shortly
-            hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
-            hideChannelNumberRunnable = Runnable { channelNumberOverlay.value = null }
-            uiHandler.postDelayed(hideChannelNumberRunnable!!, 800L)
             return
         }
 
@@ -210,8 +185,6 @@ class PlayerActivityExo : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
-        hideChannelNumberRunnable = null
         numericCommitRunnable?.let(uiHandler::removeCallbacks)
         numericCommitRunnable = null
         super.onDestroy()
@@ -364,7 +337,7 @@ class PlayerActivityExo : ComponentActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
             setContent {
-                PlayerOverlayUi()
+                NumericInputOverlay()
             }
         }
         rootLayout.addView(overlayComposeView)
@@ -398,6 +371,10 @@ class PlayerActivityExo : ComponentActivity() {
     }
 
     override fun onPause() {
+        numericCommitRunnable?.let(uiHandler::removeCallbacks)
+        numericCommitRunnable = null
+        numericChannelInput.setLength(0)
+        numericInputDisplay.value = ""
         stopExpiryWatcher()
         super.onPause()
     }
@@ -476,7 +453,6 @@ class PlayerActivityExo : ComponentActivity() {
             }
 
             android.util.Log.d("PlayerActivityExo", "Playing channel: ${channel.name}, URL: ${channel.url}")
-            showChannelNumberTemporarily()
 
             // Use default data source
             val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this)
@@ -712,8 +688,6 @@ class PlayerActivityExo : ComponentActivity() {
         try {
             channelId = channel.id
             currentChannelIndex.value = ChannelRepository.getAllChannels().indexOfFirst { it.id == channelId }
-
-            showChannelNumberTemporarily()
             
             android.util.Log.d("PlayerActivityExo", "Switching to channel: ${channel.name}, URL: ${channel.url}")
             
@@ -857,9 +831,9 @@ class PlayerActivityExo : ComponentActivity() {
     }
 
     @Composable
-    private fun PlayerOverlayUi() {
-        val number = channelNumberOverlay.value
-        if (number != null) {
+    private fun NumericInputOverlay() {
+        val display = numericInputDisplay.value
+        if (display.isNotEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -867,14 +841,14 @@ class PlayerActivityExo : ComponentActivity() {
                 contentAlignment = Alignment.TopEnd
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f)),
-                    shape = RoundedCornerShape(10.dp)
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = number.toString(),
+                        text = display,
                         color = Color.White,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        fontSize = 18.sp
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        fontSize = 24.sp
                     )
                 }
             }

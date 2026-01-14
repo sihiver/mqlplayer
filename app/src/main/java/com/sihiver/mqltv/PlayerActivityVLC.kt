@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -31,6 +32,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +56,6 @@ import org.videolan.libvlc.util.VLCVideoLayout
 class PlayerActivityVLC : ComponentActivity() {
 
     private companion object {
-        private const val CHANNEL_NUMBER_AUTOHIDE_MS = 1_500L
         private const val NUMERIC_INPUT_COMMIT_MS = 1_200L
     }
 
@@ -64,7 +65,7 @@ class PlayerActivityVLC : ComponentActivity() {
     private var channelId: Int = -1
 
     private val currentChannelName = mutableStateOf("")
-    private val channelNumberOverlay = mutableStateOf<Int?>(null)
+    private val numericInputDisplay = mutableStateOf("")
     private val isBuffering = mutableStateOf(true)
     private val bufferingPercent = mutableStateOf(0f)
     private val isVideoReady = mutableStateOf(false)
@@ -73,7 +74,8 @@ class PlayerActivityVLC : ComponentActivity() {
     private var isChangingChannel = false
 
     private val uiHandler = Handler(Looper.getMainLooper())
-    private var hideChannelNumberRunnable: Runnable? = null
+
+    private var lastNumericDigitAtMs = 0L
 
     private val numericChannelInput = StringBuilder()
     private var numericCommitRunnable: Runnable? = null
@@ -132,23 +134,6 @@ class PlayerActivityVLC : ComponentActivity() {
         expiryWatcherJob = null
     }
 
-    private fun showChannelNumberTemporarily() {
-        // Compute number by current playlist order; fallback to channelId.
-        val all = ChannelRepository.getAllChannels().ifEmpty {
-            ChannelRepository.loadChannels(this)
-            ChannelRepository.getAllChannels()
-        }
-        val index = all.indexOfFirst { it.id == channelId }
-        val numberToShow = if (index >= 0) index + 1 else channelId
-
-        channelNumberOverlay.value = numberToShow
-        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
-        hideChannelNumberRunnable = Runnable {
-            channelNumberOverlay.value = null
-        }
-        uiHandler.postDelayed(hideChannelNumberRunnable!!, CHANNEL_NUMBER_AUTOHIDE_MS)
-    }
-
     private fun digitFromKeyCode(keyCode: Int): Int? {
         return when (keyCode) {
             KeyEvent.KEYCODE_0 -> 0
@@ -182,9 +167,10 @@ class PlayerActivityVLC : ComponentActivity() {
         numericChannelInput.append(digit)
         val typed = numericChannelInput.toString().toIntOrNull() ?: return
 
-        // Show typed number immediately (don't auto-hide while typing)
-        channelNumberOverlay.value = typed
-        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
+        lastNumericDigitAtMs = SystemClock.elapsedRealtime()
+
+        // Show typed number
+        numericInputDisplay.value = typed.toString()
 
         numericCommitRunnable?.let(uiHandler::removeCallbacks)
         numericCommitRunnable = Runnable {
@@ -196,22 +182,17 @@ class PlayerActivityVLC : ComponentActivity() {
     private fun commitNumericChannelSelection() {
         val typed = numericChannelInput.toString().toIntOrNull()
         numericChannelInput.setLength(0)
+        numericInputDisplay.value = ""
         numericCommitRunnable?.let(uiHandler::removeCallbacks)
         numericCommitRunnable = null
 
-        if (typed == null || typed <= 0) {
-            channelNumberOverlay.value = null
-            return
-        }
+        if (typed == null || typed <= 0) return
 
         ChannelRepository.loadChannels(this)
         val channels = ChannelRepository.getAllChannels()
         val index = typed - 1
         if (index !in channels.indices) {
             android.widget.Toast.makeText(this, "Channel $typed tidak ada", android.widget.Toast.LENGTH_SHORT).show()
-            hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
-            hideChannelNumberRunnable = Runnable { channelNumberOverlay.value = null }
-            uiHandler.postDelayed(hideChannelNumberRunnable!!, 800L)
             return
         }
 
@@ -219,8 +200,6 @@ class PlayerActivityVLC : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
-        hideChannelNumberRunnable = null
         numericCommitRunnable?.let(uiHandler::removeCallbacks)
         numericCommitRunnable = null
         super.onDestroy()
@@ -247,6 +226,10 @@ class PlayerActivityVLC : ComponentActivity() {
     }
 
     override fun onPause() {
+        numericCommitRunnable?.let(uiHandler::removeCallbacks)
+        numericCommitRunnable = null
+        numericChannelInput.setLength(0)
+        numericInputDisplay.value = ""
         stopExpiryWatcher()
         super.onPause()
     }
@@ -469,7 +452,6 @@ class PlayerActivityVLC : ComponentActivity() {
             
             android.util.Log.d("PlayerActivityVLC", "Playing: ${ch.name}, URL: ${ch.url}")
             currentChannelName.value = ch.name
-            showChannelNumberTemporarily()
             
             val options = arrayListOf(
                 "--aout=opensles",
@@ -664,7 +646,6 @@ class PlayerActivityVLC : ComponentActivity() {
         // Update channel info
         channelId = ch.id
         currentChannelName.value = ch.name
-        showChannelNumberTemporarily()
         
         // Release SYNCHRONOUSLY di main thread
         try {
@@ -710,7 +691,6 @@ class PlayerActivityVLC : ComponentActivity() {
         // Update channel info
         channelId = ch.id
         currentChannelName.value = ch.name
-        showChannelNumberTemporarily()
         
         // Release SYNCHRONOUSLY di main thread
         try {
@@ -817,8 +797,9 @@ class PlayerActivityVLC : ComponentActivity() {
             }
         }
 
-        val number = channelNumberOverlay.value
-        if (number != null) {
+        // Numeric input display
+        val display = numericInputDisplay.value
+        if (display.isNotEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -826,14 +807,14 @@ class PlayerActivityVLC : ComponentActivity() {
                 contentAlignment = Alignment.TopEnd
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.6f)),
-                    shape = RoundedCornerShape(10.dp)
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = number.toString(),
+                        text = display,
                         color = Color.White,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        fontSize = 18.sp
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        fontSize = 24.sp
                     )
                 }
             }
