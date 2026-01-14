@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
@@ -45,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sihiver.mqltv.model.Channel
@@ -319,97 +319,84 @@ fun PlayerChannelListOverlay(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .padding(12.dp)
+                            .background(
+                                if (nav.headerSelected.value) Color(0xFF1976D2).copy(alpha = 0.25f) else Color.Transparent,
+                                RoundedCornerShape(10.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .background(
-                                    if (nav.headerSelected.value) Color(0xFF1976D2).copy(alpha = 0.25f) else Color.Transparent,
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        val baseArrowSize = if (nav.headerSelected.value) 26f else 22f
+                        val leftSize = (baseArrowSize * if (nav.headerSelected.value) leftPulse.value else 1f).dp
+                        val rightSize = (baseArrowSize * if (nav.headerSelected.value) rightPulse.value else 1f).dp
+
+                        IconButton(
+                            onClick = {
+                                if (categoryKeys.isNotEmpty()) {
+                                    nav.categoryNavDirection.value = -1
+                                    val prev = (selectedCategoryIndex - 1).mod(categoryKeys.size)
+                                    nav.selectedCategory.value = categoryKeys[prev]
+                                    nav.selectedListIndex.value = 0
+                                }
+                            }
                         ) {
-                            val baseArrowSize = if (nav.headerSelected.value) 26f else 22f
-                            val leftSize = (baseArrowSize * if (nav.headerSelected.value) leftPulse.value else 1f).dp
-                            val rightSize = (baseArrowSize * if (nav.headerSelected.value) rightPulse.value else 1f).dp
-
-                            IconButton(
-                                onClick = {
-                                    if (categoryKeys.isNotEmpty()) {
-                                        nav.categoryNavDirection.value = -1
-                                        val prev = (selectedCategoryIndex - 1).mod(categoryKeys.size)
-                                        nav.selectedCategory.value = categoryKeys[prev]
-                                        nav.selectedListIndex.value = 0
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.KeyboardArrowLeft,
-                                    contentDescription = "Prev category",
-                                    tint = if (nav.headerSelected.value) Color.White else Color.Gray,
-                                    modifier = Modifier
-                                        .background(
-                                            if (nav.headerSelected.value) Color.White.copy(alpha = 0.18f) else Color.Transparent,
-                                            CircleShape
-                                        )
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (nav.headerSelected.value) Color.White.copy(alpha = 0.55f) else Color.Transparent,
-                                            shape = CircleShape,
-                                        )
-                                        .padding(2.dp)
-                                        .size(leftSize)
-                                )
-                            }
-
-                            Text(
-                                text = categoryLabel(nav.selectedCategory.value),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                maxLines = 1
-                            )
-
-                            IconButton(
-                                onClick = {
-                                    if (categoryKeys.isNotEmpty()) {
-                                        nav.categoryNavDirection.value = 1
-                                        val next = (selectedCategoryIndex + 1).mod(categoryKeys.size)
-                                        nav.selectedCategory.value = categoryKeys[next]
-                                        nav.selectedListIndex.value = 0
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.KeyboardArrowRight,
-                                    contentDescription = "Next category",
-                                    tint = if (nav.headerSelected.value) Color.White else Color.Gray,
-                                    modifier = Modifier
-                                        .background(
-                                            if (nav.headerSelected.value) Color.White.copy(alpha = 0.18f) else Color.Transparent,
-                                            CircleShape
-                                        )
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (nav.headerSelected.value) Color.White.copy(alpha = 0.55f) else Color.Transparent,
-                                            shape = CircleShape,
-                                        )
-                                        .padding(2.dp)
-                                        .size(rightSize)
-                                )
-                            }
-
-                            Text(
-                                text = " (${filteredChannels.size})",
-                                color = Color.Gray,
-                                fontSize = 14.sp
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowLeft,
+                                contentDescription = "Prev category",
+                                tint = if (nav.headerSelected.value) Color.White else Color.Gray,
+                                modifier = Modifier
+                                    .background(
+                                        if (nav.headerSelected.value) Color.White.copy(alpha = 0.18f) else Color.Transparent,
+                                        CircleShape
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (nav.headerSelected.value) Color.White.copy(alpha = 0.55f) else Color.Transparent,
+                                        shape = CircleShape,
+                                    )
+                                    .padding(2.dp)
+                                    .size(leftSize)
                             )
                         }
-                        IconButton(onClick = { nav.showChannelList.value = false }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+
+                        Text(
+                            text = categoryLabel(nav.selectedCategory.value),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        IconButton(
+                            onClick = {
+                                if (categoryKeys.isNotEmpty()) {
+                                    nav.categoryNavDirection.value = 1
+                                    val next = (selectedCategoryIndex + 1).mod(categoryKeys.size)
+                                    nav.selectedCategory.value = categoryKeys[next]
+                                    nav.selectedListIndex.value = 0
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowRight,
+                                contentDescription = "Next category",
+                                tint = if (nav.headerSelected.value) Color.White else Color.Gray,
+                                modifier = Modifier
+                                    .background(
+                                        if (nav.headerSelected.value) Color.White.copy(alpha = 0.18f) else Color.Transparent,
+                                        CircleShape
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (nav.headerSelected.value) Color.White.copy(alpha = 0.55f) else Color.Transparent,
+                                        shape = CircleShape,
+                                    )
+                                    .padding(2.dp)
+                                    .size(rightSize)
+                            )
                         }
                     }
 
