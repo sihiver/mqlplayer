@@ -85,6 +85,43 @@ import kotlinx.coroutines.delay
 @androidx.media3.common.util.UnstableApi
 class MainActivity : ComponentActivity() {
     private var expiryWatcherJob: Job? = null
+    private var playlistAutoRefreshJob: Job? = null
+
+    private fun startPlaylistAutoRefresh() {
+        playlistAutoRefreshJob?.cancel()
+        playlistAutoRefreshJob = lifecycleScope.launch {
+            // Refresh periodically while the activity is in foreground.
+            // Keep interval modest to avoid unnecessary network traffic.
+            val intervalMs = 5 * 60 * 1000L // 5 minutes
+            while (true) {
+                if (!AuthRepository.isLoggedIn(this@MainActivity)) return@launch
+
+                try {
+                    val urls = linkedSetOf<String>().apply {
+                        val authUrl = AuthRepository.getPlaylistUrl(this@MainActivity)
+                        if (authUrl.isNotBlank()) add(authUrl)
+                        addAll(ChannelRepository.getPlaylistUrls(this@MainActivity))
+                    }
+
+                    if (urls.isNotEmpty()) {
+                        urls.forEach { playlistUrl ->
+                            android.util.Log.d("MainActivity", "Auto-refreshing playlist from: $playlistUrl")
+                            ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Auto-refresh failed", e)
+                }
+
+                delay(intervalMs)
+            }
+        }
+    }
+
+    private fun stopPlaylistAutoRefresh() {
+        playlistAutoRefreshJob?.cancel()
+        playlistAutoRefreshJob = null
+    }
 
     private fun startExpiryWatcher() {
         expiryWatcherJob?.cancel()
@@ -164,21 +201,13 @@ class MainActivity : ComponentActivity() {
         // Load saved channels
         ChannelRepository.loadChannels(this)
 
-        // First run: if there are no channels and no playlist saved yet,
-        // add the default sample playlist URL so it can be imported.
-        ChannelRepository.ensureDefaultPlaylistUrl(this)
-        
-        // Auto-refresh playlists on launch
-        lifecycleScope.launch {
-            try {
-                val playlistUrls = ChannelRepository.getPlaylistUrls(this@MainActivity)
-                playlistUrls.forEach { playlistUrl ->
-                    android.util.Log.d("MainActivity", "Auto-refreshing playlist from: $playlistUrl")
-                    ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Auto-refresh failed", e)
-            }
+        // Ensure we keep the authenticated playlist URL in the playlist list (used for refresh/import).
+        val authPlaylistUrl = AuthRepository.getPlaylistUrl(this).trim()
+        if (authPlaylistUrl.isNotBlank()) {
+            ChannelRepository.addPlaylistUrl(this, authPlaylistUrl)
+        } else {
+            // First run (no login playlist yet): add the default sample playlist URL so it can be imported.
+            ChannelRepository.ensureDefaultPlaylistUrl(this)
         }
         
         setContent {
@@ -218,23 +247,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 
-                // Periodic refresh every 30 minutes
-                LaunchedEffect(Unit) {
-                    while (true) {
-                        delay(30 * 60 * 1000L) // 30 minutes
-                        try {
-                            val playlistUrls = ChannelRepository.getPlaylistUrls(this@MainActivity)
-                            if (playlistUrls.isNotEmpty()) {
-                                playlistUrls.forEach { playlistUrl ->
-                                    android.util.Log.d("MainActivity", "Periodic refresh from: $playlistUrl")
-                                    ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("MainActivity", "Periodic refresh failed", e)
-                        }
-                    }
-                }
+                // Auto-refresh is handled by an Activity lifecycle job (see startPlaylistAutoRefresh).
                 
                 val content: @Composable () -> Unit = {
                     Box(
@@ -642,11 +655,13 @@ class MainActivity : ComponentActivity() {
         // Reload channels when returning to this activity
         ChannelRepository.loadChannels(this)
         startExpiryWatcher()
+        startPlaylistAutoRefresh()
     }
 
     override fun onPause() {
-        stopExpiryWatcher()
         super.onPause()
+        stopExpiryWatcher()
+        stopPlaylistAutoRefresh()
     }
 }
 
