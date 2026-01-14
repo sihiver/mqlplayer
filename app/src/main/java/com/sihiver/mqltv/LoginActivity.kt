@@ -250,6 +250,7 @@ class LoginActivity : ComponentActivity() {
 
                                                     ChannelRepository.clearPlaylistUrls(this@LoginActivity)
                                                     ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
+                                                    ChannelRepository.ensureDefaultPlaylistUrl(this@LoginActivity)
 
                                                     isLoading = false
                                                     if (result.isExpired) {
@@ -282,6 +283,7 @@ class LoginActivity : ComponentActivity() {
                                                     if (result.playlistUrl.isNotBlank()) {
                                                         ChannelRepository.clearPlaylistUrls(this@LoginActivity)
                                                         ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
+                                                        ChannelRepository.ensureDefaultPlaylistUrl(this@LoginActivity)
                                                     }
 
                                                     isLoading = false

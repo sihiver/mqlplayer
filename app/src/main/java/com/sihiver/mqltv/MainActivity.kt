@@ -97,11 +97,7 @@ class MainActivity : ComponentActivity() {
                 if (!AuthRepository.isLoggedIn(this@MainActivity)) return@launch
 
                 try {
-                    val urls = linkedSetOf<String>().apply {
-                        val authUrl = AuthRepository.getPlaylistUrl(this@MainActivity)
-                        if (authUrl.isNotBlank()) add(authUrl)
-                        addAll(ChannelRepository.getPlaylistUrls(this@MainActivity))
-                    }
+                    val urls = ChannelRepository.getPlaylistUrls(this@MainActivity)
 
                     if (urls.isNotEmpty()) {
                         urls.forEach { playlistUrl ->
@@ -201,13 +197,13 @@ class MainActivity : ComponentActivity() {
         // Load saved channels
         ChannelRepository.loadChannels(this)
 
-        // Ensure we keep the authenticated playlist URL in the playlist list (used for refresh/import).
+        // Always ensure the default (simple/sample) playlist URL exists (unless user cleared samples),
+        // then also keep the authenticated playlist URL.
+        ChannelRepository.ensureDefaultPlaylistUrl(this)
+
         val authPlaylistUrl = AuthRepository.getPlaylistUrl(this).trim()
         if (authPlaylistUrl.isNotBlank()) {
             ChannelRepository.addPlaylistUrl(this, authPlaylistUrl)
-        } else {
-            // First run (no login playlist yet): add the default sample playlist URL so it can be imported.
-            ChannelRepository.ensureDefaultPlaylistUrl(this)
         }
         
         setContent {

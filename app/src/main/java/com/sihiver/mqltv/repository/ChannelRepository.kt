@@ -391,7 +391,31 @@ object ChannelRepository {
                 .apply()
         }
 
-        return currentSet.filter { it.isNotBlank() }.distinct()
+        val normalized = currentSet.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+
+        // Order requirement:
+        // 1) Default "simple/sample" playlist (if present)
+        // 2) Account playlist URL (if present)
+        // 3) Others
+        val ordered = ArrayList<String>(normalized.size)
+
+        if (DEFAULT_SAMPLE_PLAYLIST_URL.isNotBlank() && normalized.contains(DEFAULT_SAMPLE_PLAYLIST_URL)) {
+            ordered.add(DEFAULT_SAMPLE_PLAYLIST_URL)
+        }
+
+        val accountUrl = AuthRepository.getPlaylistUrl(context).trim()
+        if (accountUrl.isNotBlank() && normalized.contains(accountUrl) && !ordered.contains(accountUrl)) {
+            ordered.add(accountUrl)
+        }
+
+        // Remaining URLs (stable-ish ordering for UI/refresh runs)
+        normalized
+            .asSequence()
+            .filterNot { it == DEFAULT_SAMPLE_PLAYLIST_URL || it == accountUrl }
+            .sorted()
+            .forEach { ordered.add(it) }
+
+        return ordered
     }
 
     fun addPlaylistUrl(context: Context, url: String) {
