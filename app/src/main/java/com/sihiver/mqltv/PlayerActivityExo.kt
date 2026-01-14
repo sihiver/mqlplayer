@@ -449,6 +449,9 @@ class PlayerActivityExo : ComponentActivity() {
 
     private fun initializePlayer() {
         try {
+            val prefs = getSharedPreferences("video_settings", Context.MODE_PRIVATE)
+            val accelerationSetting = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
+
             // Load channels first
             ChannelRepository.loadChannels(this)
 
@@ -471,8 +474,21 @@ class PlayerActivityExo : ComponentActivity() {
             // EXTENSION_RENDERER_MODE_PREFER = FFmpeg preferred for audio, but MediaCodec for video
             val renderersFactory = NextRenderersFactory(this).apply {
                 setEnableDecoderFallback(true)
-                // PREFER mode: FFmpeg untuk audio (MPEG-L2), tapi MediaCodec hardware untuk video
-                setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+
+                // Map setting "acceleration" ke prioritas decoder.
+                // - HW/HW+: MediaCodec diprioritaskan, FFmpeg hanya fallback.
+                // - SW: FFmpeg diprioritaskan (best-effort software decode).
+                val extensionMode = when (accelerationSetting) {
+                    "SW (Software)" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                    "HW (Hardware)", "HW+ (Hardware+)" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+                    else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+                }
+                setExtensionRendererMode(extensionMode)
+
+                android.util.Log.d(
+                    "PlayerActivityExo",
+                    "Video acceleration=$accelerationSetting, extensionRendererMode=$extensionMode"
+                )
             }
 
             // Setup DRM if needed
