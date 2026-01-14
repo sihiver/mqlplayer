@@ -4,54 +4,30 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
-import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import android.net.Uri
+import androidx.compose.runtime.mutableStateOf
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
-import com.sihiver.mqltv.ui.player.PlayerChannelListNavState
-import com.sihiver.mqltv.ui.player.PlayerChannelListOverlay
-import com.sihiver.mqltv.ui.player.handlePlayerChannelListKeyEvent
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
-import okhttp3.OkHttpClient
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -63,13 +39,9 @@ class PlayerActivityExo : ComponentActivity() {
     private var exoPlayer: ExoPlayer? = null
     private var playerView: PlayerView? = null
     private var channelId: Int = -1
-    private var overlayComposeView: ComposeView? = null
-    private var showChannelList = mutableStateOf(false)
     private var currentChannelIndex = mutableStateOf(0)
-    private val showSidebar = mutableStateOf(false)
-    private val selectedCategory = mutableStateOf("all")
-    private val selectedListIndex = mutableStateOf(0)
-    private val selectedSidebarIndex = mutableStateOf(0)
+
+    private lateinit var channelListLauncher: ActivityResultLauncher<Intent>
 
     private var expiryWatcherJob: Job? = null
 
@@ -172,12 +144,6 @@ class PlayerActivityExo : ComponentActivity() {
         // Handle back button
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (showChannelList.value) {
-                    showChannelList.value = false
-                    showSidebar.value = false
-                    return
-                }
-
                 android.util.Log.d("PlayerActivityExo", "Back pressed, finishing activity")
                 finish()
             }
@@ -200,6 +166,23 @@ class PlayerActivityExo : ComponentActivity() {
             )
             finish()
             return
+        }
+
+        // Get channel ID from intent
+        channelId = intent.getIntExtra("CHANNEL_ID", -1)
+        android.util.Log.d("PlayerActivityExo", "Received channel ID: $channelId")
+
+        channelListLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val selectedId = result.data?.getIntExtra(ChannelListActivity.EXTRA_SELECTED_CHANNEL_ID, -1) ?: -1
+                if (selectedId > 0) {
+                    ChannelRepository.loadChannels(this)
+                    val channel = ChannelRepository.getChannelById(selectedId)
+                    if (channel != null) {
+                        switchChannel(channel)
+                    }
+                }
+            }
         }
 
         // Create root frame layout
@@ -247,24 +230,11 @@ class PlayerActivityExo : ComponentActivity() {
 
             // Handle click to show channel list
             setOnClickListener {
-                showChannelList.value = !showChannelList.value
+                openChannelList()
             }
         }
 
         rootLayout.addView(playerView)
-
-        // Create channel list overlay (Compose)
-        overlayComposeView = ComposeView(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-            setContent {
-                ChannelListOverlay()
-            }
-        }
-
-        rootLayout.addView(overlayComposeView)
 
         setContentView(rootLayout)
 
@@ -282,10 +252,11 @@ class PlayerActivityExo : ComponentActivity() {
         } catch (e: Exception) {
             android.util.Log.w("PlayerActivityExo", "Failed to hide system UI: ${e.message}")
         }
+    }
 
-        // Get channel ID from intent
-        channelId = intent.getIntExtra("CHANNEL_ID", -1)
-        android.util.Log.d("PlayerActivityExo", "Received channel ID: $channelId")
+    private fun openChannelList() {
+        if (!::channelListLauncher.isInitialized) return
+        channelListLauncher.launch(ChannelListActivity.createIntent(this, channelId))
     }
 
     override fun onResume() {
@@ -309,19 +280,38 @@ class PlayerActivityExo : ComponentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val consumed = handlePlayerChannelListKeyEvent(
-            event = event,
-            currentChannelId = channelId,
-            nav = PlayerChannelListNavState(
-                showChannelList = showChannelList,
-                showSidebar = showSidebar,
-                selectedCategory = selectedCategory,
-                selectedListIndex = selectedListIndex,
-                selectedSidebarIndex = selectedSidebarIndex,
-            ),
-            onPlayChannel = { ch -> switchChannel(ch) },
-        )
-        return if (consumed) true else super.dispatchKeyEvent(event)
+        val keyCode = event.keyCode
+
+        // Consume both DOWN and UP for OK/ENTER/MENU so we don't double-trigger.
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_MENU,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            23 -> {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    openChannelList()
+                }
+                return true
+            }
+        }
+
+        if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
+
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
+                switchToNextChannel(previous = true)
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                switchToNextChannel(previous = false)
+                return true
+            }
+        }
+
+        return super.dispatchKeyEvent(event)
     }
 
     private fun initializePlayer() {
@@ -476,11 +466,11 @@ class PlayerActivityExo : ComponentActivity() {
                                         
                                         // Small delay before showing list
                                         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                            showChannelList.value = true
+                                            openChannelList()
                                         }, 500)
                                     } catch (e: Exception) {
                                         android.util.Log.e("PlayerActivityExo", "Error clearing player state", e)
-                                        showChannelList.value = true
+                                        openChannelList()
                                     }
                                 }
                                 return
@@ -506,9 +496,9 @@ class PlayerActivityExo : ComponentActivity() {
                                     "$errorMessage\nTekan OK/Menu untuk pilih channel lain.",
                                     android.widget.Toast.LENGTH_LONG
                                 ).show()
-                                
-                                // Show channel list automatically so user can select another channel
-                                showChannelList.value = true
+
+                                // Open channel list automatically so user can select another channel
+                                openChannelList()
                             }
                         }
                     })
@@ -715,20 +705,5 @@ class PlayerActivityExo : ComponentActivity() {
             .setUri(streamUrl)
             .setMimeType(MimeTypes.APPLICATION_MPD)
             .build()
-    }
-
-    @Composable
-    private fun ChannelListOverlay() {
-        PlayerChannelListOverlay(
-            nav = PlayerChannelListNavState(
-                showChannelList = showChannelList,
-                showSidebar = showSidebar,
-                selectedCategory = selectedCategory,
-                selectedListIndex = selectedListIndex,
-                selectedSidebarIndex = selectedSidebarIndex,
-            ),
-            currentChannelId = channelId,
-            onPlayChannel = { ch -> switchChannel(ch) },
-        )
     }
 }

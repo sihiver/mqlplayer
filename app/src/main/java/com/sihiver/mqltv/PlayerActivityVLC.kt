@@ -13,56 +13,32 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
-import com.sihiver.mqltv.ui.player.PlayerChannelListNavState
-import com.sihiver.mqltv.ui.player.PlayerChannelListOverlay
-import com.sihiver.mqltv.ui.player.handlePlayerChannelListKeyEvent
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -79,19 +55,16 @@ class PlayerActivityVLC : ComponentActivity() {
     private var vlcPlayer: MediaPlayer? = null
     private lateinit var videoLayout: VLCVideoLayout
     private var channelId: Int = -1
-    
-    private val showChannelList = mutableStateOf(false)
+
     private val currentChannelName = mutableStateOf("")
-    private val selectedListIndex = mutableStateOf(0)
     private val isBuffering = mutableStateOf(true)
     private val bufferingPercent = mutableStateOf(0f)
     private val isVideoReady = mutableStateOf(false)
     private var savedAudioTrack: Int = -1
     private var pendingPlay = false
     private var isChangingChannel = false
-    private val showSidebar = mutableStateOf(false)
-    private val selectedCategory = mutableStateOf("all") // all, favorites, recent, or category name
-    private val selectedSidebarIndex = mutableStateOf(0)
+
+    private lateinit var channelListLauncher: ActivityResultLauncher<Intent>
 
     private var expiryWatcherJob: Job? = null
 
@@ -296,6 +269,19 @@ class PlayerActivityVLC : ComponentActivity() {
                 finish()
             }
         })
+
+        channelListLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                val selectedId = result.data?.getIntExtra(ChannelListActivity.EXTRA_SELECTED_CHANNEL_ID, -1) ?: -1
+                if (selectedId > 0) {
+                    ChannelRepository.loadChannels(this)
+                    val channel = ChannelRepository.getChannelById(selectedId)
+                    if (channel != null) {
+                        playChannelDirect(channel)
+                    }
+                }
+            }
+        }
         
         val rootLayout = FrameLayout(this).apply {
             layoutParams = android.view.ViewGroup.LayoutParams(
@@ -316,7 +302,7 @@ class PlayerActivityVLC : ComponentActivity() {
         rootLayout.addView(videoLayout)
         
         videoLayout.setOnClickListener {
-            showChannelList.value = !showChannelList.value
+            openChannelList()
         }
         
         val overlayComposeView = ComposeView(this).apply {
@@ -325,7 +311,7 @@ class PlayerActivityVLC : ComponentActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
             setContent {
-                ChannelListOverlay()
+                PlayerOverlayUi()
             }
         }
         rootLayout.addView(overlayComposeView)
@@ -343,6 +329,11 @@ class PlayerActivityVLC : ComponentActivity() {
         )
         
         channelId = intent.getIntExtra("CHANNEL_ID", -1)
+    }
+
+    private fun openChannelList() {
+        if (!::channelListLauncher.isInitialized) return
+        channelListLauncher.launch(ChannelListActivity.createIntent(this, channelId))
     }
     
     override fun onStart() {
@@ -554,9 +545,6 @@ class PlayerActivityVLC : ComponentActivity() {
         }
         isChangingChannel = true
         
-        // Close overlay first
-        showChannelList.value = false
-        
         // Set buffering state dan reset video ready
         isBuffering.value = true
         bufferingPercent.value = 0f
@@ -602,9 +590,6 @@ class PlayerActivityVLC : ComponentActivity() {
         }
         isChangingChannel = true
         
-        // Close overlay first
-        showChannelList.value = false
-        
         // Set buffering state dan reset video ready
         isBuffering.value = true
         bufferingPercent.value = 0f
@@ -639,31 +624,42 @@ class PlayerActivityVLC : ComponentActivity() {
         }, 300)
     }
     
-    // Helper function to get filtered channels based on selected category
-    private fun getFilteredChannels(): List<Channel> {
-        val allChannels = ChannelRepository.getAllChannels()
-        return when (selectedCategory.value) {
-            "all" -> allChannels
-            "favorites" -> ChannelRepository.getFavorites()
-            "recent" -> allChannels.take(10)
-            else -> allChannels.filter { it.category == selectedCategory.value }
-        }
-    }
-    
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val consumed = handlePlayerChannelListKeyEvent(
-            event = event,
-            currentChannelId = channelId,
-            nav = PlayerChannelListNavState(
-                showChannelList = showChannelList,
-                showSidebar = showSidebar,
-                selectedCategory = selectedCategory,
-                selectedListIndex = selectedListIndex,
-                selectedSidebarIndex = selectedSidebarIndex,
-            ),
-            onPlayChannel = { ch -> playChannelDirect(ch) },
-        )
-        return if (consumed) true else super.dispatchKeyEvent(event)
+        val keyCode = event.keyCode
+
+        // Consume both DOWN and UP for OK/ENTER/MENU so we don't double-trigger.
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_MENU,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            23 -> {
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    openChannelList()
+                }
+                return true
+            }
+        }
+
+        if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
+
+        val allChannels = ChannelRepository.getAllChannels()
+        val currentIndex = allChannels.indexOfFirst { it.id == channelId }
+
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
+                if (currentIndex > 0) playChannel(allChannels[currentIndex - 1])
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+                if (currentIndex >= 0 && currentIndex < allChannels.size - 1) playChannel(allChannels[currentIndex + 1])
+                return true
+            }
+        }
+
+        return super.dispatchKeyEvent(event)
     }
     
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -672,19 +668,7 @@ class PlayerActivityVLC : ComponentActivity() {
     }
 
     @Composable
-    private fun ChannelListOverlay() {
-        PlayerChannelListOverlay(
-            nav = PlayerChannelListNavState(
-                showChannelList = showChannelList,
-                showSidebar = showSidebar,
-                selectedCategory = selectedCategory,
-                selectedListIndex = selectedListIndex,
-                selectedSidebarIndex = selectedSidebarIndex,
-            ),
-            currentChannelId = channelId,
-            onPlayChannel = { ch -> playChannelDirect(ch) },
-        )
-        
+    private fun PlayerOverlayUi() {
         // Buffering indicator
         if (isBuffering.value) {
             Box(
@@ -709,7 +693,7 @@ class PlayerActivityVLC : ComponentActivity() {
             }
         }
         
-        if (!showChannelList.value && currentChannelName.value.isNotEmpty()) {
+        if (currentChannelName.value.isNotEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

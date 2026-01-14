@@ -68,6 +68,14 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
             android:screenOrientation="sensorLandscape"
             android:launchMode="singleTop" />
+
+        <activity
+            android:name=".ChannelListActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MQLTV.ChannelListOverlay"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTop" />
         
         <activity
             android:name=".AddChannelActivity"
