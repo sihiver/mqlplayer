@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -317,6 +318,9 @@ class MainActivity : ComponentActivity() {
                     val scope = rememberCoroutineScope()
                     var sidebarExpanded by remember { mutableStateOf(false) }
                     var collapseJob by remember { mutableStateOf<Job?>(null) }
+                    val headerSearchFocusRequester = remember { FocusRequester() }
+                    val headerRefreshFocusRequester = remember { FocusRequester() }
+                    val headerFavoritesFocusRequester = remember { FocusRequester() }
                     val sidebarWidth by animateDpAsState(
                         targetValue = if (sidebarExpanded) 220.dp else 72.dp,
                         label = "tvSidebarWidth"
@@ -367,6 +371,20 @@ class MainActivity : ComponentActivity() {
                                         .fillMaxWidth()
                                         .height(56.dp)
                                         .onKeyEvent { event ->
+                                            // TV UX: for the Live tab header we want DPAD Right from the sidebar
+                                            // to land on the first header action (Search). For other tabs, or
+                                            // when the header isn't currently composed, let the default focus
+                                            // system handle navigation (and avoid FocusRequester crashes).
+                                            if (event.key == Key.DirectionRight) {
+                                                if (selectedTab == 0 && event.type == KeyEventType.KeyDown) {
+                                                    val focused = runCatching {
+                                                        headerSearchFocusRequester.requestFocus()
+                                                        true
+                                                    }.getOrDefault(false)
+                                                    return@onKeyEvent focused
+                                                }
+                                                return@onKeyEvent false
+                                            }
                                             if (event.type == KeyEventType.KeyUp &&
                                                 (event.key == Key.DirectionCenter ||
                                                     event.key == Key.Enter ||
@@ -489,7 +507,76 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxHeight()
                                 .weight(1f)
                         ) {
-                            content()
+                            // Pass the shared header focus targets down so sidebar can route DPAD.
+                            when (selectedTab) {
+                                0 -> LiveChannelsScreen(
+                                    onChannelClick = { channel ->
+                                        try {
+                                            ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
+
+                                            val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
+                                            val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+
+                                            val intent = if (playerType == "VLC") {
+                                                Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                            } else {
+                                                Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                            }
+                                            intent.putExtra("CHANNEL_ID", channel.id)
+                                            startActivity(intent)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
+                                        }
+                                    },
+                                    headerSearchFocusRequester = headerSearchFocusRequester,
+                                    headerRefreshFocusRequester = headerRefreshFocusRequester,
+                                    headerFavoritesFocusRequester = headerFavoritesFocusRequester
+                                )
+                                1 -> MovieChannelsScreen(
+                                    onChannelClick = { channel ->
+                                        try {
+                                            ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
+
+                                            val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
+                                            val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+
+                                            val intent = if (playerType == "VLC") {
+                                                Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                            } else {
+                                                Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                            }
+                                            intent.putExtra("CHANNEL_ID", channel.id)
+                                            startActivity(intent)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
+                                        }
+                                    }
+                                )
+                                3 -> CenterMessage("Series - Coming Soon")
+                                4 -> SettingsScreen(
+                                    onClearPlaylist = {
+                                        ChannelRepository.clearAllChannels(this@MainActivity)
+                                        android.widget.Toast.makeText(
+                                            this@MainActivity,
+                                            "Playlist cleared",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    onLogout = {
+                                        AuthRepository.logout(this@MainActivity)
+                                        ChannelRepository.clearPlaylistUrls(this@MainActivity)
+
+                                        android.widget.Toast.makeText(
+                                            this@MainActivity,
+                                            "Logged out",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+
+                                        startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                                        finish()
+                                    }
+                                )
+                            }
                         }
                     }
                 } else {
@@ -1015,12 +1102,22 @@ fun SettingsScreen(
 }
 
 @Composable
-fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
+fun LiveChannelsScreen(
+    onChannelClick: (Channel) -> Unit,
+    headerSearchFocusRequester: FocusRequester? = null,
+    headerRefreshFocusRequester: FocusRequester? = null,
+    headerFavoritesFocusRequester: FocusRequester? = null,
+) {
     val context = LocalContext.current
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
     var refreshKey by remember { mutableStateOf(0) }
     var showAllCategory by remember { mutableStateOf<String?>(null) }
     var showAllRecent by remember { mutableStateOf(false) }
+    var showSearchDialog by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var showSearchResults by remember { mutableStateOf(false) }
+    var searchResults by remember { mutableStateOf<List<Channel>>(emptyList()) }
+    var searchResultsTitle by remember { mutableStateOf("Search") }
     val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
     val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
     val initialFocusRequester = remember { FocusRequester() }
@@ -1029,6 +1126,13 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
     // Manual refresh state (refresh button next to search)
     var isRefreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    val searchActionFocusRequester = headerSearchFocusRequester ?: remember { FocusRequester() }
+    val refreshActionFocusRequester = headerRefreshFocusRequester ?: remember { FocusRequester() }
+    val favoritesActionFocusRequester = headerFavoritesFocusRequester ?: remember { FocusRequester() }
+    var isSearchFocused by remember { mutableStateOf(false) }
+    var isRefreshFocused by remember { mutableStateOf(false) }
+    var isFavoritesFocused by remember { mutableStateOf(false) }
 
     // Listen to lifecycle events
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -1078,6 +1182,16 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
         )
         return
     }
+
+    if (showSearchResults) {
+        FullChannelListScreen(
+            title = searchResultsTitle,
+            channels = searchResults,
+            onChannelClick = onChannelClick,
+            onBack = { showSearchResults = false }
+        )
+        return
+    }
     
     showAllCategory?.let { category ->
         val categoryChannels = if (category == "Favorites") {
@@ -1092,6 +1206,65 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
             onBack = { showAllCategory = null }
         )
         return
+    }
+
+    if (showSearchDialog) {
+        AlertDialog(
+            onDismissRequest = { showSearchDialog = false },
+            title = { Material3Text(text = "Cari Channel", color = Color.White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Material3Text(
+                        text = "Ketik nama channel, lalu tekan OK.",
+                        color = Color.Gray,
+                        fontSize = 13.sp
+                    )
+                    androidx.compose.material3.OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        singleLine = true,
+                        label = { androidx.compose.material3.Text("Nama channel") },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                        ),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onSearch = {
+                                val q = searchQuery.trim()
+                                val results = if (q.isBlank()) emptyList() else channels.filter {
+                                    it.name.contains(q, ignoreCase = true)
+                                }
+                                searchResults = results
+                                searchResultsTitle = if (q.isBlank()) "Search" else "Search: $q"
+                                showSearchDialog = false
+                                showSearchResults = true
+                            }
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val q = searchQuery.trim()
+                        val results = if (q.isBlank()) emptyList() else channels.filter {
+                            it.name.contains(q, ignoreCase = true)
+                        }
+                        searchResults = results
+                        searchResultsTitle = if (q.isBlank()) "Search" else "Search: $q"
+                        showSearchDialog = false
+                        showSearchResults = true
+                    }
+                ) {
+                    Material3Text("OK", color = Color(0xFF00BCD4))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSearchDialog = false }) {
+                    Material3Text("Batal", color = Color.Gray)
+                }
+            },
+            containerColor = Color(0xFF1E1E1E)
+        )
     }
     
     LazyColumn(
@@ -1119,27 +1292,103 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
-
-                    // Refresh playlist button (next to search)
-                    if (isRefreshing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
+                    // TV-focusable Search action
+                    Box(
+                        modifier = Modifier
+                            .size(if (isTv) 48.dp else 40.dp)
+                            .clip(CircleShape)
+                            .background(if (isSearchFocused) Color(0x33FFFFFF) else Color.Transparent)
+                            .focusRequester(searchActionFocusRequester)
+                            .onFocusChanged { isSearchFocused = it.isFocused }
+                            .focusable()
+                            .focusProperties {
+                                right = refreshActionFocusRequester
+                            }
+                            .onKeyEvent { event ->
+                                if (!isTv) return@onKeyEvent false
+                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                when (event.key) {
+                                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                        showSearchDialog = true; true
+                                    }
+                                    else -> false
+                                }
+                            }
+                            .clickable { showSearchDialog = true },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh Playlist",
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
                             tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    // TV-focusable Refresh playlist action (next to search)
+                    if (isRefreshing) {
+                        Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(if (isTv) 48.dp else 40.dp)
+                                .clip(CircleShape)
+                                .background(if (isRefreshFocused) Color(0x33FFFFFF) else Color.Transparent)
+                                .focusRequester(refreshActionFocusRequester)
+                                .onFocusChanged { isRefreshFocused = it.isFocused }
+                                .focusable()
+                                .focusProperties {
+                                    left = searchActionFocusRequester
+                                    right = favoritesActionFocusRequester
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(if (isTv) 48.dp else 40.dp)
+                                .clip(CircleShape)
+                                .background(if (isRefreshFocused) Color(0x33FFFFFF) else Color.Transparent)
+                                .focusRequester(refreshActionFocusRequester)
+                                .onFocusChanged { isRefreshFocused = it.isFocused }
+                                .focusable()
+                                .focusProperties {
+                                    left = searchActionFocusRequester
+                                    right = favoritesActionFocusRequester
+                                }
+                                .onKeyEvent { event ->
+                                    if (!isTv) return@onKeyEvent false
+                                    if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                    when (event.key) {
+                                        Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                            if (isRefreshing) return@onKeyEvent true
+                                            isRefreshing = true
+                                            scope.launch {
+                                                try {
+                                                    val playlistUrls = ChannelRepository.getPlaylistUrls(context)
+                                                    playlistUrls.forEach { playlistUrl ->
+                                                        android.util.Log.d(
+                                                            "LiveChannelsScreen",
+                                                            "Manual refresh from: $playlistUrl"
+                                                        )
+                                                        ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
+                                                    }
+                                                    refreshKey++
+                                                } catch (e: Exception) {
+                                                    android.util.Log.e("LiveChannelsScreen", "Manual refresh failed", e)
+                                                } finally {
+                                                    isRefreshing = false
+                                                }
+                                            }
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                }
                                 .clickable {
                                     if (isRefreshing) return@clickable
                                     isRefreshing = true
@@ -1153,7 +1402,6 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                                                 )
                                                 ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
                                             }
-                                            // force local list reload immediately
                                             refreshKey++
                                         } catch (e: Exception) {
                                             android.util.Log.e("LiveChannelsScreen", "Manual refresh failed", e)
@@ -1161,16 +1409,46 @@ fun LiveChannelsScreen(onChannelClick: (Channel) -> Unit) {
                                             isRefreshing = false
                                         }
                                     }
-                                }
-                        )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh Playlist",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
 
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = "Favorites",
-                        tint = Color(0xFFE50914),
-                        modifier = Modifier.size(28.dp)
-                    )
+                    // Keep Favorites focusable too so DPAD traversal feels natural.
+                    Box(
+                        modifier = Modifier
+                            .size(if (isTv) 48.dp else 40.dp)
+                            .clip(CircleShape)
+                            .background(if (isFavoritesFocused) Color(0x33FFFFFF) else Color.Transparent)
+                            .focusRequester(favoritesActionFocusRequester)
+                            .onFocusChanged { isFavoritesFocused = it.isFocused }
+                            .focusable()
+                            .focusProperties {
+                                left = refreshActionFocusRequester
+                            }
+                            .onKeyEvent { event ->
+                                if (!isTv) return@onKeyEvent false
+                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                when (event.key) {
+                                    else -> false
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "Favorites",
+                            tint = Color(0xFFE50914),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
             }
         }
