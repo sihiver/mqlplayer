@@ -33,10 +33,10 @@ class ChannelListActivity : ComponentActivity() {
     private var currentChannelId: Int = -1
 
     private val showChannelList = mutableStateOf(true)
-    private val showSidebar = mutableStateOf(false)
+    private val headerSelected = mutableStateOf(false)
+    private val categoryNavDirection = mutableStateOf(0)
     private val selectedCategory = mutableStateOf("all")
     private val selectedListIndex = mutableStateOf(0)
-    private val selectedSidebarIndex = mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,10 +79,10 @@ class ChannelListActivity : ComponentActivity() {
                 PlayerChannelListOverlay(
                     nav = PlayerChannelListNavState(
                         showChannelList = showChannelList,
-                        showSidebar = showSidebar,
+                        headerSelected = headerSelected,
+                        categoryNavDirection = categoryNavDirection,
                         selectedCategory = selectedCategory,
                         selectedListIndex = selectedListIndex,
-                        selectedSidebarIndex = selectedSidebarIndex,
                     ),
                     currentChannelId = currentChannelId,
                     onPlayChannel = { ch ->
@@ -101,10 +101,10 @@ class ChannelListActivity : ComponentActivity() {
             currentChannelId = currentChannelId,
             nav = PlayerChannelListNavState(
                 showChannelList = showChannelList,
-                showSidebar = showSidebar,
+                headerSelected = headerSelected,
+                categoryNavDirection = categoryNavDirection,
                 selectedCategory = selectedCategory,
                 selectedListIndex = selectedListIndex,
-                selectedSidebarIndex = selectedSidebarIndex,
             ),
             onPlayChannel = { ch -> returnResult(ch) },
         )

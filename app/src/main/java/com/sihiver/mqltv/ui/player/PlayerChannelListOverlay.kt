@@ -1,7 +1,10 @@
 package com.sihiver.mqltv.ui.player
 
 import android.view.KeyEvent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -35,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,11 +53,37 @@ import com.sihiver.mqltv.repository.ChannelRepository
 /** Shared channel list overlay for both Exo and VLC players. */
 data class PlayerChannelListNavState(
     val showChannelList: MutableState<Boolean>,
-    val showSidebar: MutableState<Boolean>,
+    val headerSelected: MutableState<Boolean>,
+    /** -1: moved left, +1: moved right, 0: none */
+    val categoryNavDirection: MutableState<Int>,
     val selectedCategory: MutableState<String>,
     val selectedListIndex: MutableState<Int>,
-    val selectedSidebarIndex: MutableState<Int>,
 )
+
+private fun buildCategoryKeys(allChannels: List<Channel>): List<String> {
+    val categories = allChannels
+        .map { it.category }
+        .distinct()
+        .filter { it.isNotEmpty() }
+
+    return buildList {
+        add("all")
+        add("favorites")
+        add("recent")
+        addAll(categories)
+    }
+}
+
+private fun categoryLabel(key: String): String {
+    return when {
+        key == "all" -> "Semua Channel"
+        key == "favorites" -> "Favorit"
+        key == "recent" -> "Terakhir Ditonton"
+        key.trim().equals("event", ignoreCase = true) -> "EVENTS"
+        key.trim().equals("movie", ignoreCase = true) -> "MOVIES"
+        else -> key
+    }
+}
 
 fun handlePlayerChannelListKeyEvent(
     event: KeyEvent,
@@ -61,6 +92,24 @@ fun handlePlayerChannelListKeyEvent(
     onPlayChannel: (Channel) -> Unit,
 ): Boolean {
     val keyCode = event.keyCode
+
+    fun cycleCategory(delta: Int) {
+        val allChannels = ChannelRepository.getAllChannels()
+        val keys = buildCategoryKeys(allChannels)
+        if (keys.isEmpty()) return
+
+        nav.categoryNavDirection.value = when {
+            delta < 0 -> -1
+            delta > 0 -> 1
+            else -> 0
+        }
+
+        val current = nav.selectedCategory.value
+        val currentIndex = keys.indexOf(current).let { if (it >= 0) it else 0 }
+        val newIndex = (currentIndex + delta).mod(keys.size)
+        nav.selectedCategory.value = keys[newIndex]
+        nav.selectedListIndex.value = 0
+    }
 
     // When overlay is visible, consume DPAD_CENTER/ENTER on both DOWN+UP to prevent double actions.
     if (nav.showChannelList.value) {
@@ -71,39 +120,25 @@ fun handlePlayerChannelListKeyEvent(
             KeyEvent.KEYCODE_BUTTON_A,
             23 -> {
                 if (event.action == KeyEvent.ACTION_DOWN) {
-                    val allChannels = ChannelRepository.getAllChannels()
-                    val favoriteChannels = ChannelRepository.getFavorites()
-                    val categories = allChannels
-                        .map { it.category }
-                        .distinct()
-                        .filter { it.isNotEmpty() }
-
-                    val sidebarItems = mutableListOf<String>().apply {
-                        add("all")
-                        add("favorites")
-                        add("recent")
-                        addAll(categories)
+                    // Header is "selected" -> OK does nothing (prevents accidental play)
+                    if (nav.headerSelected.value) {
+                        return true
                     }
 
-                    if (nav.showSidebar.value) {
-                        if (nav.selectedSidebarIndex.value in sidebarItems.indices) {
-                            nav.selectedCategory.value = sidebarItems[nav.selectedSidebarIndex.value]
-                            nav.selectedListIndex.value = 0
-                            nav.showSidebar.value = false
-                        }
-                    } else {
-                        val filteredChannels = when (nav.selectedCategory.value) {
-                            "all" -> allChannels
-                            "favorites" -> favoriteChannels
-                            "recent" -> allChannels.take(10)
-                            else -> allChannels.filter { it.category == nav.selectedCategory.value }
-                        }
-                        if (nav.selectedListIndex.value in filteredChannels.indices) {
-                            val selectedChannel = filteredChannels[nav.selectedListIndex.value]
-                            nav.showChannelList.value = false
-                            nav.showSidebar.value = false
-                            onPlayChannel(selectedChannel)
-                        }
+                    val allChannels = ChannelRepository.getAllChannels()
+                    val favoriteChannels = ChannelRepository.getFavorites()
+                    val filteredChannels = when (nav.selectedCategory.value) {
+                        "all" -> allChannels
+                        "favorites" -> favoriteChannels
+                        "recent" -> allChannels.take(10)
+                        else -> allChannels.filter { it.category == nav.selectedCategory.value }
+                    }
+                    if (nav.selectedListIndex.value in filteredChannels.indices) {
+                        val selectedChannel = filteredChannels[nav.selectedListIndex.value]
+                        nav.showChannelList.value = false
+                        nav.headerSelected.value = false
+                        nav.categoryNavDirection.value = 0
+                        onPlayChannel(selectedChannel)
                     }
                 }
                 return true
@@ -118,63 +153,51 @@ fun handlePlayerChannelListKeyEvent(
     val currentIndex = allChannels.indexOfFirst { it.id == currentChannelId }
 
     if (nav.showChannelList.value) {
-        if (nav.showSidebar.value) {
-            val categories = allChannels
-                .map { it.category }
-                .distinct()
-                .filter { it.isNotEmpty() }
-            val sidebarCount = 3 + categories.size // all, favorites, recent + categories
+        val favoriteChannels = ChannelRepository.getFavorites()
+        val filteredChannels = when (nav.selectedCategory.value) {
+            "all" -> allChannels
+            "favorites" -> favoriteChannels
+            "recent" -> allChannels.take(10)
+            else -> allChannels.filter { it.category == nav.selectedCategory.value }
+        }
 
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_UP -> {
-                    if (nav.selectedSidebarIndex.value > 0) nav.selectedSidebarIndex.value -= 1
-                    return true
-                }
-                KeyEvent.KEYCODE_DPAD_DOWN -> {
-                    if (nav.selectedSidebarIndex.value < sidebarCount - 1) nav.selectedSidebarIndex.value += 1
-                    return true
-                }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    nav.showSidebar.value = false
-                    return true
-                }
-                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                    nav.showSidebar.value = false
-                    return true
-                }
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (nav.headerSelected.value) cycleCategory(delta = -1)
+                return true
             }
-        } else {
-            val favoriteChannels = ChannelRepository.getFavorites()
-            val filteredChannels = when (nav.selectedCategory.value) {
-                "all" -> allChannels
-                "favorites" -> favoriteChannels
-                "recent" -> allChannels.take(10)
-                else -> allChannels.filter { it.category == nav.selectedCategory.value }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (nav.headerSelected.value) cycleCategory(delta = +1)
+                return true
             }
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (nav.headerSelected.value) {
+                    return true
+                }
 
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_UP -> {
-                    if (nav.selectedListIndex.value > 0) nav.selectedListIndex.value -= 1
+                // Move focus to header when at top of list
+                if (nav.selectedListIndex.value <= 0) {
+                    nav.headerSelected.value = true
                     return true
                 }
-                KeyEvent.KEYCODE_DPAD_DOWN -> {
-                    if (nav.selectedListIndex.value < filteredChannels.size - 1) nav.selectedListIndex.value += 1
+
+                nav.selectedListIndex.value -= 1
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (nav.headerSelected.value) {
+                    nav.headerSelected.value = false
                     return true
                 }
-                KeyEvent.KEYCODE_DPAD_LEFT -> {
-                    nav.showSidebar.value = true
-                    return true
-                }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    nav.showChannelList.value = false
-                    nav.showSidebar.value = false
-                    return true
-                }
-                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
-                    nav.showChannelList.value = false
-                    nav.showSidebar.value = false
-                    return true
-                }
+
+                if (nav.selectedListIndex.value < filteredChannels.size - 1) nav.selectedListIndex.value += 1
+                return true
+            }
+            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                nav.showChannelList.value = false
+                nav.headerSelected.value = false
+                nav.categoryNavDirection.value = 0
+                return true
             }
         }
     } else {
@@ -199,8 +222,8 @@ fun handlePlayerChannelListKeyEvent(
             23 -> {
                 nav.selectedListIndex.value = if (currentIndex >= 0) currentIndex else 0
                 nav.selectedCategory.value = "all"
-                nav.selectedSidebarIndex.value = 0
-                nav.showSidebar.value = false
+                nav.headerSelected.value = false
+                nav.categoryNavDirection.value = 0
                 nav.showChannelList.value = true
                 return true
             }
@@ -218,15 +241,7 @@ fun PlayerChannelListOverlay(
 ) {
     val allChannels: List<Channel> = remember { ChannelRepository.getAllChannels() }
     val favoriteChannels: List<Channel> = remember { ChannelRepository.getFavorites() }
-    val categories: List<String> = remember {
-        val base = allChannels
-            .map { ch -> ch.category }
-            .distinct()
-            .filter { cat -> cat.isNotEmpty() }
-
-        val eventCategory = base.firstOrNull { it.trim().equals("event", ignoreCase = true) }
-        if (eventCategory == null) base else listOf(eventCategory) + base.filterNot { it == eventCategory }
-    }
+    val categoryKeys: List<String> = remember { buildCategoryKeys(allChannels) }
 
     val filteredChannels: List<Channel> = remember(nav.selectedCategory.value) {
         when (nav.selectedCategory.value) {
@@ -238,22 +253,43 @@ fun PlayerChannelListOverlay(
     }
 
     val listState = rememberLazyListState()
-    val sidebarListState = rememberLazyListState()
+    val selectedCategoryIndex = remember(nav.selectedCategory.value, categoryKeys) {
+        categoryKeys.indexOf(nav.selectedCategory.value).let { if (it >= 0) it else 0 }
+    }
 
-    val sidebarItems = remember(categories) {
-        mutableListOf<Pair<String, String>>().apply {
-            add("all" to "Semua Channel")
-            add("favorites" to "Favorit")
-            add("recent" to "Terakhir Ditonton")
-            categories.forEach { cat ->
-                add(
-                    cat to when {
-                        cat.trim().equals("event", ignoreCase = true) -> "EVENTS"
-                        cat.trim().equals("movie", ignoreCase = true) -> "MOVIES"
-                        else -> cat
-                    }
-                )
+    // Pulse animation when changing category via LEFT/RIGHT while header is selected.
+    val leftPulse = remember { Animatable(1f) }
+    val rightPulse = remember { Animatable(1f) }
+    val lastCategory = remember { mutableStateOf(nav.selectedCategory.value) }
+    val pulseInitialized = remember { mutableStateOf(false) }
+
+    LaunchedEffect(nav.selectedCategory.value, nav.headerSelected.value) {
+        val prev = lastCategory.value
+        val current = nav.selectedCategory.value
+        val changed = prev != current
+        lastCategory.value = current
+
+        if (!pulseInitialized.value) {
+            pulseInitialized.value = true
+            return@LaunchedEffect
+        }
+
+        if (nav.headerSelected.value && changed) {
+            when (nav.categoryNavDirection.value) {
+                -1 -> {
+                    leftPulse.snapTo(1f)
+                    leftPulse.animateTo(1.15f, tween(durationMillis = 90))
+                    leftPulse.animateTo(1f, tween(durationMillis = 160))
+                }
+                1 -> {
+                    rightPulse.snapTo(1f)
+                    rightPulse.animateTo(1.15f, tween(durationMillis = 90))
+                    rightPulse.animateTo(1f, tween(durationMillis = 160))
+                }
             }
+
+            // Clear direction after anim so non-dpad changes won't wrongly pulse.
+            nav.categoryNavDirection.value = 0
         }
     }
 
@@ -273,197 +309,175 @@ fun PlayerChannelListOverlay(
         Row(modifier = Modifier.fillMaxSize()) {
             Card(
                 modifier = Modifier
-                    .width(if (nav.showSidebar.value) 550.dp else 380.dp)
+                    .width(420.dp)
                     .fillMaxHeight()
                     .padding(16.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E).copy(alpha = 0.9f))
             ) {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    if (nav.showSidebar.value) {
-                        Column(
-                            modifier = Modifier
-                                .width(170.dp)
-                                .fillMaxHeight()
-                                .background(Color(0xFF252525))
-                        ) {
-                            LazyColumn(state = sidebarListState, modifier = Modifier.fillMaxSize()) {
-                                itemsIndexed(sidebarItems) { index, (key, label) ->
-                                    val isSelected = nav.selectedCategory.value == key
-                                    val isSidebarSelected = index == nav.selectedSidebarIndex.value
-
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(
-                                                when {
-                                                    isSidebarSelected -> Color(0xFF424242)
-                                                    isSelected -> Color(0xFF1976D2)
-                                                    else -> Color.Transparent
-                                                }
-                                            )
-                                            .clickable {
-                                                nav.selectedCategory.value = key
-                                                nav.selectedListIndex.value = 0
-                                                nav.selectedSidebarIndex.value = index
-                                                nav.showSidebar.value = false
-                                            }
-                                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = when (key) {
-                                                "all" -> Icons.AutoMirrored.Filled.List
-                                                "favorites" -> Icons.Filled.Favorite
-                                                "recent" -> Icons.Filled.History
-                                                else -> Icons.Filled.PlayArrow
-                                            },
-                                            contentDescription = null,
-                                            tint = if (isSelected) Color.White else Color.Gray,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Text(
-                                            text = label,
-                                            color = if (isSelected) Color.White else Color.Gray,
-                                            fontSize = 13.sp,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .width(1.dp)
-                                .fillMaxHeight()
-                                .background(Color.Gray.copy(alpha = 0.3f))
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { nav.showSidebar.value = !nav.showSidebar.value }
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .background(
+                                    if (nav.headerSelected.value) Color(0xFF1976D2).copy(alpha = 0.25f) else Color.Transparent,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = when (nav.selectedCategory.value) {
-                                        "all" -> Icons.AutoMirrored.Filled.List
-                                        "favorites" -> Icons.Filled.Favorite
-                                        "recent" -> Icons.Filled.History
-                                        else -> Icons.Filled.PlayArrow
-                                    },
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = when (nav.selectedCategory.value) {
-                                        "all" -> "Semua Channel"
-                                        "favorites" -> "Favorit"
-                                        "recent" -> "Terakhir Ditonton"
-                                        else -> nav.selectedCategory.value
-                                    },
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
-                                Text(
-                                    text = " (${filteredChannels.size})",
-                                    color = Color.Gray,
-                                    fontSize = 14.sp
-                                )
-                                Icon(
-                                    imageVector = if (nav.showSidebar.value) Icons.Default.KeyboardArrowLeft else Icons.Default.KeyboardArrowRight,
-                                    contentDescription = "Toggle sidebar",
-                                    tint = Color.Gray,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            val baseArrowSize = if (nav.headerSelected.value) 26f else 22f
+                            val leftSize = (baseArrowSize * if (nav.headerSelected.value) leftPulse.value else 1f).dp
+                            val rightSize = (baseArrowSize * if (nav.headerSelected.value) rightPulse.value else 1f).dp
+
                             IconButton(
                                 onClick = {
-                                    nav.showChannelList.value = false
-                                    nav.showSidebar.value = false
+                                    if (categoryKeys.isNotEmpty()) {
+                                        nav.categoryNavDirection.value = -1
+                                        val prev = (selectedCategoryIndex - 1).mod(categoryKeys.size)
+                                        nav.selectedCategory.value = categoryKeys[prev]
+                                        nav.selectedListIndex.value = 0
+                                    }
                                 }
                             ) {
-                                Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
-                            }
-                        }
-
-                        Divider(color = Color.Gray.copy(alpha = 0.3f))
-
-                        if (filteredChannels.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(text = "Tidak ada channel", color = Color.Gray, fontSize = 14.sp)
-                            }
-                        } else {
-                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                                itemsIndexed(filteredChannels) { index, item ->
-                                    val isCurrentChannel = item.id == currentChannelId
-                                    val isSelected = index == nav.selectedListIndex.value
-                                    val isFavorite = favoriteChannels.any { fav -> fav.id == item.id }
-
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(
-                                                when {
-                                                    isSelected && isCurrentChannel -> Color(0xFF1976D2)
-                                                    isSelected -> Color(0xFF424242)
-                                                    isCurrentChannel -> Color(0xFF2196F3)
-                                                    else -> Color.Transparent
-                                                }
-                                            )
-                                            .clickable {
-                                                nav.selectedListIndex.value = index
-                                                nav.showChannelList.value = false
-                                                nav.showSidebar.value = false
-                                                onPlayChannel(item)
-                                            }
-                                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = (index + 1).toString(),
-                                            color = if (isSelected) Color.White else Color.Gray,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.width(30.dp)
+                                Icon(
+                                    imageVector = Icons.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Prev category",
+                                    tint = if (nav.headerSelected.value) Color.White else Color.Gray,
+                                    modifier = Modifier
+                                        .background(
+                                            if (nav.headerSelected.value) Color.White.copy(alpha = 0.18f) else Color.Transparent,
+                                            CircleShape
                                         )
-                                        Column(modifier = Modifier.weight(1f)) {
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (nav.headerSelected.value) Color.White.copy(alpha = 0.55f) else Color.Transparent,
+                                            shape = CircleShape,
+                                        )
+                                        .padding(2.dp)
+                                        .size(leftSize)
+                                )
+                            }
+
+                            Text(
+                                text = categoryLabel(nav.selectedCategory.value),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                maxLines = 1
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    if (categoryKeys.isNotEmpty()) {
+                                        nav.categoryNavDirection.value = 1
+                                        val next = (selectedCategoryIndex + 1).mod(categoryKeys.size)
+                                        nav.selectedCategory.value = categoryKeys[next]
+                                        nav.selectedListIndex.value = 0
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.KeyboardArrowRight,
+                                    contentDescription = "Next category",
+                                    tint = if (nav.headerSelected.value) Color.White else Color.Gray,
+                                    modifier = Modifier
+                                        .background(
+                                            if (nav.headerSelected.value) Color.White.copy(alpha = 0.18f) else Color.Transparent,
+                                            CircleShape
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (nav.headerSelected.value) Color.White.copy(alpha = 0.55f) else Color.Transparent,
+                                            shape = CircleShape,
+                                        )
+                                        .padding(2.dp)
+                                        .size(rightSize)
+                                )
+                            }
+
+                            Text(
+                                text = " (${filteredChannels.size})",
+                                color = Color.Gray,
+                                fontSize = 14.sp
+                            )
+                        }
+                        IconButton(onClick = { nav.showChannelList.value = false }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                        }
+                    }
+
+                    Divider(color = Color.Gray.copy(alpha = 0.3f))
+
+                    if (filteredChannels.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(text = "Tidak ada channel", color = Color.Gray, fontSize = 14.sp)
+                        }
+                    } else {
+                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                            itemsIndexed(filteredChannels) { index, item ->
+                                val isCurrentChannel = item.id == currentChannelId
+                                val isSelected = !nav.headerSelected.value && index == nav.selectedListIndex.value
+                                val isFavorite = favoriteChannels.any { fav -> fav.id == item.id }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            when {
+                                                isSelected && isCurrentChannel -> Color(0xFF1976D2)
+                                                isSelected -> Color(0xFF424242)
+                                                isCurrentChannel -> Color(0xFF2196F3)
+                                                else -> Color.Transparent
+                                            }
+                                        )
+                                        .clickable {
+                                            nav.selectedListIndex.value = index
+                                            nav.showChannelList.value = false
+                                            onPlayChannel(item)
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = (index + 1).toString(),
+                                        color = if (isSelected) Color.White else Color.Gray,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.width(30.dp)
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.name,
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            maxLines = 1
+                                        )
+                                        if (item.category.isNotEmpty() && nav.selectedCategory.value == "all") {
                                             Text(
-                                                text = item.name,
-                                                color = Color.White,
-                                                fontSize = 14.sp,
+                                                text = item.category,
+                                                color = Color.Gray,
+                                                fontSize = 11.sp,
                                                 maxLines = 1
                                             )
-                                            if (item.category.isNotEmpty() && nav.selectedCategory.value == "all") {
-                                                Text(
-                                                    text = item.category,
-                                                    color = Color.Gray,
-                                                    fontSize = 11.sp,
-                                                    maxLines = 1
-                                                )
-                                            }
                                         }
-                                        if (isFavorite) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Favorite,
-                                                contentDescription = null,
-                                                tint = Color.Red,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                        }
-                                        if (isCurrentChannel) {
-                                            Text(text = "▶", color = Color.White, fontSize = 12.sp)
-                                        }
+                                    }
+                                    if (isFavorite) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Favorite,
+                                            contentDescription = null,
+                                            tint = Color.Red,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+                                    if (isCurrentChannel) {
+                                        Text(text = "▶", color = Color.White, fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -478,7 +492,6 @@ fun PlayerChannelListOverlay(
                     .fillMaxHeight()
                     .clickable {
                         nav.showChannelList.value = false
-                        nav.showSidebar.value = false
                     }
             )
         }
