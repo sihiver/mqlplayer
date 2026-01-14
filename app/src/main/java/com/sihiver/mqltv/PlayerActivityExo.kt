@@ -54,6 +54,7 @@ class PlayerActivityExo : ComponentActivity() {
 
     private companion object {
         private const val CHANNEL_NUMBER_AUTOHIDE_MS = 1_500L
+        private const val NUMERIC_INPUT_COMMIT_MS = 1_200L
     }
     
     private var exoPlayer: ExoPlayer? = null
@@ -64,6 +65,9 @@ class PlayerActivityExo : ComponentActivity() {
     private val channelNumberOverlay = mutableStateOf<Int?>(null)
     private val uiHandler = Handler(Looper.getMainLooper())
     private var hideChannelNumberRunnable: Runnable? = null
+
+    private val numericChannelInput = StringBuilder()
+    private var numericCommitRunnable: Runnable? = null
 
     private lateinit var channelListLauncher: ActivityResultLauncher<Intent>
 
@@ -135,9 +139,81 @@ class PlayerActivityExo : ComponentActivity() {
         uiHandler.postDelayed(hideChannelNumberRunnable!!, CHANNEL_NUMBER_AUTOHIDE_MS)
     }
 
+    private fun digitFromKeyCode(keyCode: Int): Int? {
+        return when (keyCode) {
+            KeyEvent.KEYCODE_0 -> 0
+            KeyEvent.KEYCODE_1 -> 1
+            KeyEvent.KEYCODE_2 -> 2
+            KeyEvent.KEYCODE_3 -> 3
+            KeyEvent.KEYCODE_4 -> 4
+            KeyEvent.KEYCODE_5 -> 5
+            KeyEvent.KEYCODE_6 -> 6
+            KeyEvent.KEYCODE_7 -> 7
+            KeyEvent.KEYCODE_8 -> 8
+            KeyEvent.KEYCODE_9 -> 9
+            KeyEvent.KEYCODE_NUMPAD_0 -> 0
+            KeyEvent.KEYCODE_NUMPAD_1 -> 1
+            KeyEvent.KEYCODE_NUMPAD_2 -> 2
+            KeyEvent.KEYCODE_NUMPAD_3 -> 3
+            KeyEvent.KEYCODE_NUMPAD_4 -> 4
+            KeyEvent.KEYCODE_NUMPAD_5 -> 5
+            KeyEvent.KEYCODE_NUMPAD_6 -> 6
+            KeyEvent.KEYCODE_NUMPAD_7 -> 7
+            KeyEvent.KEYCODE_NUMPAD_8 -> 8
+            KeyEvent.KEYCODE_NUMPAD_9 -> 9
+            else -> null
+        }
+    }
+
+    private fun onNumericDigitPressed(digit: Int) {
+        if (numericChannelInput.length >= 4) numericChannelInput.setLength(0)
+        if (numericChannelInput.isEmpty() && digit == 0) return
+
+        numericChannelInput.append(digit)
+        val typed = numericChannelInput.toString().toIntOrNull() ?: return
+
+        // Show typed number immediately (don't auto-hide while typing)
+        channelNumberOverlay.value = typed
+        hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
+
+        numericCommitRunnable?.let(uiHandler::removeCallbacks)
+        numericCommitRunnable = Runnable {
+            commitNumericChannelSelection()
+        }
+        uiHandler.postDelayed(numericCommitRunnable!!, NUMERIC_INPUT_COMMIT_MS)
+    }
+
+    private fun commitNumericChannelSelection() {
+        val typed = numericChannelInput.toString().toIntOrNull()
+        numericChannelInput.setLength(0)
+        numericCommitRunnable?.let(uiHandler::removeCallbacks)
+        numericCommitRunnable = null
+
+        if (typed == null || typed <= 0) {
+            channelNumberOverlay.value = null
+            return
+        }
+
+        ChannelRepository.loadChannels(this)
+        val channels = ChannelRepository.getAllChannels()
+        val index = typed - 1
+        if (index !in channels.indices) {
+            android.widget.Toast.makeText(this, "Channel $typed tidak ada", android.widget.Toast.LENGTH_SHORT).show()
+            // Hide shortly
+            hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
+            hideChannelNumberRunnable = Runnable { channelNumberOverlay.value = null }
+            uiHandler.postDelayed(hideChannelNumberRunnable!!, 800L)
+            return
+        }
+
+        switchChannel(channels[index])
+    }
+
     override fun onDestroy() {
         hideChannelNumberRunnable?.let(uiHandler::removeCallbacks)
         hideChannelNumberRunnable = null
+        numericCommitRunnable?.let(uiHandler::removeCallbacks)
+        numericCommitRunnable = null
         super.onDestroy()
     }
     
@@ -339,6 +415,14 @@ class PlayerActivityExo : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
 
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val digit = digitFromKeyCode(keyCode)
+            if (digit != null) {
+                onNumericDigitPressed(digit)
+                return true
+            }
+        }
+
         // Consume both DOWN and UP for OK/ENTER/MENU so we don't double-trigger.
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_CENTER,
@@ -349,7 +433,12 @@ class PlayerActivityExo : ComponentActivity() {
             KeyEvent.KEYCODE_DPAD_LEFT,
             23 -> {
                 if (event.action == KeyEvent.ACTION_DOWN) {
+                    // If user is typing a number, confirm it instead of opening list.
+                    if (numericChannelInput.isNotEmpty()) {
+                        commitNumericChannelSelection()
+                    } else {
                     openChannelList()
+                    }
                 }
                 return true
             }
