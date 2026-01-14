@@ -10,6 +10,7 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 object ChannelRepository {
     
@@ -27,6 +28,18 @@ object ChannelRepository {
 
     // Default embedded playlist URL (always kept unless user clears samples).
     private const val DEFAULT_SAMPLE_PLAYLIST_URL = "http://192.168.15.10/playlist.m3u"
+
+    private fun playlistCacheKey(url: String, suffix: String): String {
+        // Short, stable key derived from URL to avoid very long preference keys.
+        val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray(Charsets.UTF_8))
+        val short = digest.take(12).joinToString("") { b -> "%02x".format(b) }
+        return "playlist_${suffix}_$short"
+    }
+
+    private fun sha256Hex(text: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { b -> "%02x".format(b) }
+    }
     
     fun getSampleChannels(): List<Channel> {
         if (sampleChannelsCleared) return emptyList()
@@ -195,13 +208,34 @@ object ChannelRepository {
     suspend fun refreshPlaylistFromServer(context: Context, url: String) {
         return withContext(Dispatchers.IO) {
             try {
-                android.util.Log.d("ChannelRepository", "Refreshing playlist from server: $url")
+                val normalizedUrl = url.trim()
+                android.util.Log.d("ChannelRepository", "Refreshing playlist from server: $normalizedUrl")
+
+                val authUrl = AuthRepository.getPlaylistUrl(context).trim()
+                val isAccountPlaylist = authUrl.isNotBlank() && normalizedUrl == authUrl
+
+                val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+                val etagKey = playlistCacheKey(normalizedUrl, "etag")
+                val lastModifiedKey = playlistCacheKey(normalizedUrl, "lastmod")
+                val hashKey = playlistCacheKey(normalizedUrl, "sha")
+
+                val previousEtag = prefs.getString(etagKey, "")?.trim().orEmpty()
+                val previousLastModified = prefs.getLong(lastModifiedKey, 0L)
+                val previousHash = prefs.getString(hashKey, "")?.trim().orEmpty()
 
                 // Fetch new playlist from server
-                val connection = URL(url).openConnection() as HttpURLConnection
+                val connection = URL(normalizedUrl).openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
                 connection.readTimeout = 10000
+
+                // Change-detection headers (best effort)
+                if (previousEtag.isNotEmpty()) {
+                    connection.setRequestProperty("If-None-Match", previousEtag)
+                }
+                if (previousLastModified > 0L) {
+                    connection.ifModifiedSince = previousLastModified
+                }
 
                 val status = try {
                     connection.responseCode
@@ -209,12 +243,22 @@ object ChannelRepository {
                     -1
                 }
 
+                if (status == HttpURLConnection.HTTP_NOT_MODIFIED) {
+                    android.util.Log.d("ChannelRepository", "Playlist not modified (304): $normalizedUrl")
+                    return@withContext
+                }
+
                 if (status == 401 || status == 403 || status == 404) {
                     android.util.Log.w(
                         "ChannelRepository",
-                        "Playlist refresh got HTTP $status (expired/invalid). Marking session expired."
+                        "Playlist refresh got HTTP $status (expired/invalid)."
                     )
-                    AuthRepository.markExpiredServer(context)
+                    // Only mark the account session expired when the *account* playlist fails.
+                    // The default sample/simple playlist can be unreachable in production and must not block the account.
+                    if (isAccountPlaylist) {
+                        android.util.Log.w("ChannelRepository", "Account playlist failed (HTTP $status). Marking expired.")
+                        AuthRepository.markExpiredServer(context)
+                    }
                     return@withContext
                 }
                 if (status !in 200..299) {
@@ -225,6 +269,28 @@ object ChannelRepository {
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
                 val content = reader.readText()
                 reader.close()
+
+                // Persist cache headers (best effort)
+                val newEtag = connection.getHeaderField("ETag")?.trim().orEmpty()
+                val newLastModified = try {
+                    connection.lastModified
+                } catch (_: Exception) {
+                    0L
+                }
+
+                val newHash = sha256Hex(content)
+                if (previousHash.isNotEmpty() && newHash == previousHash) {
+                    // Content identical: no need to re-parse or touch channels.
+                    if (newEtag.isNotEmpty() || newLastModified > 0L) {
+                        prefs.edit().apply {
+                            if (newEtag.isNotEmpty()) putString(etagKey, newEtag)
+                            if (newLastModified > 0L) putLong(lastModifiedKey, newLastModified)
+                            apply()
+                        }
+                    }
+                    android.util.Log.d("ChannelRepository", "Playlist content unchanged (hash): $normalizedUrl")
+                    return@withContext
+                }
 
                 // Parse new playlist
                 val newChannels = mutableListOf<Channel>()
@@ -267,7 +333,7 @@ object ChannelRepository {
                                         url = urlPart,
                                         category = currentGroup,
                                         logo = currentLogo,
-                                        source = url
+                                        source = normalizedUrl
                                     )
                                 )
                                 currentName = ""
@@ -294,7 +360,7 @@ object ChannelRepository {
                                 url = line,
                                 category = currentGroup,
                                 logo = currentLogo,
-                                source = url
+                                source = normalizedUrl
                             )
                         )
                         currentName = ""
@@ -303,7 +369,7 @@ object ChannelRepository {
                 }
 
                 // Compare with existing channels and update
-                val existingChannels = customChannels.filter { it.source == url }
+                val existingChannels = customChannels.filter { it.source == normalizedUrl }
 
                 val newByUrl = newChannels.associateBy { it.url }
                 val existingByUrl = existingChannels.associateBy { it.url }
@@ -338,7 +404,7 @@ object ChannelRepository {
                 // Update metadata for channels that still exist (name/logo/category/drm)
                 // This is the key bugfix so UI updates even when URL membership doesn't change.
                 customChannels = customChannels.mapTo(mutableListOf()) { ch ->
-                    val server = if (ch.source == url) newByUrl[ch.url] else null
+                    val server = if (ch.source == normalizedUrl) newByUrl[ch.url] else null
                     if (server == null) {
                         ch
                     } else {
@@ -365,6 +431,14 @@ object ChannelRepository {
                 val didChange = channelsToRemove.isNotEmpty() || channelsToAdd.isNotEmpty() || updatedCount > 0
                 if (didChange) {
                     saveChannels(context)
+                }
+
+                // Update cached fingerprint after a successful parse (even if didChange is false).
+                prefs.edit().apply {
+                    putString(hashKey, newHash)
+                    if (newEtag.isNotEmpty()) putString(etagKey, newEtag)
+                    if (newLastModified > 0L) putLong(lastModifiedKey, newLastModified)
+                    apply()
                 }
 
                 android.util.Log.d(
