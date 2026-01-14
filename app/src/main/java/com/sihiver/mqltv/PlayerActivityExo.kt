@@ -47,6 +47,9 @@ import androidx.media3.ui.PlayerView
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
+import com.sihiver.mqltv.ui.player.PlayerChannelListNavState
+import com.sihiver.mqltv.ui.player.PlayerChannelListOverlay
+import com.sihiver.mqltv.ui.player.handlePlayerChannelListKeyEvent
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 import okhttp3.OkHttpClient
 import androidx.lifecycle.lifecycleScope
@@ -63,8 +66,10 @@ class PlayerActivityExo : ComponentActivity() {
     private var overlayComposeView: ComposeView? = null
     private var showChannelList = mutableStateOf(false)
     private var currentChannelIndex = mutableStateOf(0)
-    private var showCategoryView = mutableStateOf(false)
-    private var selectedCategory = mutableStateOf<String?>(null)
+    private val showSidebar = mutableStateOf(false)
+    private val selectedCategory = mutableStateOf("all")
+    private val selectedListIndex = mutableStateOf(0)
+    private val selectedSidebarIndex = mutableStateOf(0)
 
     private var expiryWatcherJob: Job? = null
 
@@ -167,6 +172,12 @@ class PlayerActivityExo : ComponentActivity() {
         // Handle back button
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (showChannelList.value) {
+                    showChannelList.value = false
+                    showSidebar.value = false
+                    return
+                }
+
                 android.util.Log.d("PlayerActivityExo", "Back pressed, finishing activity")
                 finish()
             }
@@ -295,6 +306,22 @@ class PlayerActivityExo : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         releasePlayer()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val consumed = handlePlayerChannelListKeyEvent(
+            event = event,
+            currentChannelId = channelId,
+            nav = PlayerChannelListNavState(
+                showChannelList = showChannelList,
+                showSidebar = showSidebar,
+                selectedCategory = selectedCategory,
+                selectedListIndex = selectedListIndex,
+                selectedSidebarIndex = selectedSidebarIndex,
+            ),
+            onPlayChannel = { ch -> switchChannel(ch) },
+        )
+        return if (consumed) true else super.dispatchKeyEvent(event)
     }
 
     private fun initializePlayer() {
@@ -528,33 +555,6 @@ class PlayerActivityExo : ComponentActivity() {
         }
     }
     
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // Toggle channel list with Menu/OK button or Tab key
-        when (keyCode) {
-            KeyEvent.KEYCODE_MENU,
-            KeyEvent.KEYCODE_DPAD_CENTER,
-            KeyEvent.KEYCODE_TAB -> {
-                showChannelList.value = !showChannelList.value
-                return true
-            }
-            KeyEvent.KEYCODE_DPAD_UP -> {
-                if (!showChannelList.value) {
-                    // Quick channel up
-                    switchToNextChannel(true)
-                    return true
-                }
-            }
-            KeyEvent.KEYCODE_DPAD_DOWN -> {
-                if (!showChannelList.value) {
-                    // Quick channel down
-                    switchToNextChannel(false)
-                    return true
-                }
-            }
-        }
-        return super.onKeyDown(keyCode, event)
-    }
-    
     private fun switchToNextChannel(previous: Boolean) {
         val channels = ChannelRepository.getAllChannels()
         if (channels.isEmpty()) return
@@ -716,373 +716,19 @@ class PlayerActivityExo : ComponentActivity() {
             .setMimeType(MimeTypes.APPLICATION_MPD)
             .build()
     }
-    
+
     @Composable
     private fun ChannelListOverlay() {
-        val isVisible by showChannelList
-        
-        if (!isVisible) return
-        
-        val showCategories by showCategoryView
-        val category by selectedCategory
-        
-        if (showCategories) {
-            CategoryListView()
-        } else {
-            ChannelListView(category)
-        }
-    }
-    
-    @Composable
-    private fun CategoryListView() {
-        val categories = remember { ChannelRepository.getAllCategories() }
-        fun displayCategoryLabel(category: String): String = when {
-            category.trim().equals("event", ignoreCase = true) -> "EVENTS"
-            category.trim().equals("movie", ignoreCase = true) -> "MOVIES"
-            else -> category
-        }
-        
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.7f))
-                .clickable { showChannelList.value = false }
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(400.dp)
-                    .align(Alignment.CenterStart)
-                    .clickable(enabled = false) { },
-                color = Color(0xFF1E1E1E),
-                shape = RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    // Header
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF2196F3))
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Pilih Category",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Row {
-                            IconButton(onClick = { showCategoryView.value = false }) {
-                                Icon(
-                                    imageVector = Icons.Default.List,
-                                    contentDescription = "Back to Channels",
-                                    tint = Color.White
-                                )
-                            }
-                            IconButton(onClick = { showChannelList.value = false }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = Color.White
-                                )
-                            }
-                        }
-                    }
-                    
-                    // "Semua" option
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp)
-                            .clickable {
-                                selectedCategory.value = null
-                                showCategoryView.value = false
-                            },
-                        color = Color(0xFF2E2E2E),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "📺",
-                                fontSize = 24.sp,
-                                modifier = Modifier.padding(end = 12.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = "Semua Channel",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "${ChannelRepository.getAllChannels().size} channels",
-                                    fontSize = 14.sp,
-                                    color = Color.Gray
-                                )
-                            }
-                        }
-                    }
-                    
-                    // Category list
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(8.dp)
-                    ) {
-                        items(categories.size) { index ->
-                            val category = categories[index]
-                            val channelCount = ChannelRepository.getChannelsByCategory(category).size
-                            
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable {
-                                        // Show channels from this category
-                                        selectedCategory.value = category
-                                        showCategoryView.value = false
-                                    },
-                                color = Color(0xFF2E2E2E),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "📁",
-                                        fontSize = 24.sp,
-                                        modifier = Modifier.padding(end = 12.dp)
-                                    )
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = displayCategoryLabel(category),
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                        Text(
-                                            text = "$channelCount channels",
-                                            fontSize = 14.sp,
-                                            color = Color.Gray
-                                        )
-                                    }
-                                    Text(
-                                        text = "›",
-                                        fontSize = 28.sp,
-                                        color = Color(0xFF2196F3),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    @Composable
-    private fun ChannelListView(filterCategory: String?) {
-        val allChannels = remember { ChannelRepository.getAllChannels() }
-        fun displayCategoryLabel(category: String?): String = when {
-            category == null -> "Semua Channel"
-            category.trim().equals("event", ignoreCase = true) -> "EVENTS"
-            category.trim().equals("movie", ignoreCase = true) -> "MOVIES"
-            else -> category
-        }
-        val channels = remember(filterCategory) {
-            if (filterCategory != null) {
-                ChannelRepository.getChannelsByCategory(filterCategory)
-            } else {
-                allChannels
-            }
-        }
-        
-        val currentIndex = channels.indexOfFirst { it.id == channelId }.coerceAtLeast(0)
-        val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentIndex)
-        
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.7f))
-                .clickable { showChannelList.value = false }
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(400.dp)
-                    .align(Alignment.CenterStart)
-                    .clickable(enabled = false) { }, // Prevent closing when clicking list
-                color = Color(0xFF1E1E1E),
-                shape = RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    // Header
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFF2196F3))
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = displayCategoryLabel(filterCategory),
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "${channels.size} channels",
-                                fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.8f)
-                            )
-                        }
-                        Row {
-                            if (filterCategory != null) {
-                                IconButton(onClick = { 
-                                    selectedCategory.value = null
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Default.List,
-                                        contentDescription = "All Channels",
-                                        tint = Color.White
-                                    )
-                                }
-                            }
-                            Button(
-                                onClick = { showCategoryView.value = true },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.White.copy(alpha = 0.2f)
-                                ),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    text = "Cari",
-                                    fontSize = 14.sp,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            IconButton(onClick = { showChannelList.value = false }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = Color.White
-                                )
-                            }
-                        }
-                    }
-                    
-                    // Channel info
-                    val currentChannel = channels.getOrNull(currentChannelIndex.value)
-                    if (currentChannel != null) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(8.dp),
-                            color = Color(0xFF2196F3).copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = "Now Playing: ${currentChannel.name}",
-                                modifier = Modifier.padding(12.dp),
-                                fontSize = 14.sp,
-                                color = Color(0xFF2196F3),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    
-                    // Channel list
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(8.dp)
-                    ) {
-                        itemsIndexed(channels) { index, channel ->
-                            val isCurrentChannel = channel.id == channelId
-                            
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable {
-                                        switchChannel(channel)
-                                        showChannelList.value = false
-                                    },
-                                color = if (isCurrentChannel) Color(0xFF2196F3) else Color(0xFF2E2E2E),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Channel number
-                                    Text(
-                                        text = "%04d".format(channel.id),
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCurrentChannel) Color.White else Color(0xFF2196F3),
-                                        modifier = Modifier.width(60.dp)
-                                    )
-                                    
-                                    // Channel name
-                                    Text(
-                                        text = channel.name,
-                                        fontSize = 16.sp,
-                                        color = Color.White,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    
-                                    // Category indicator
-                                    if (channel.category.isNotEmpty()) {
-                                        Text(
-                                            text = "$",
-                                            fontSize = 16.sp,
-                                            color = Color(0xFF4CAF50),
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Instructions
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp),
-                color = Color.Black.copy(alpha = 0.8f),
-                shape = RoundedCornerShape(4.dp)
-            ) {
-                Text(
-                    text = "Menu/OK: Toggle List • ↑↓: Switch Channel • Back: Exit",
-                    modifier = Modifier.padding(8.dp),
-                    fontSize = 12.sp,
-                    color = Color.White
-                )
-            }
-        }
+        PlayerChannelListOverlay(
+            nav = PlayerChannelListNavState(
+                showChannelList = showChannelList,
+                showSidebar = showSidebar,
+                selectedCategory = selectedCategory,
+                selectedListIndex = selectedListIndex,
+                selectedSidebarIndex = selectedSidebarIndex,
+            ),
+            currentChannelId = channelId,
+            onPlayChannel = { ch -> switchChannel(ch) },
+        )
     }
 }
