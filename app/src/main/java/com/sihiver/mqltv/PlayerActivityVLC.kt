@@ -2,6 +2,7 @@ package com.sihiver.mqltv
 
 import android.content.pm.ActivityInfo
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -410,14 +411,20 @@ class PlayerActivityVLC : ComponentActivity() {
         setContentView(rootLayout)
         
         @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            or View.SYSTEM_UI_FLAG_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        )
+        window.decorView.systemUiVisibility = run {
+            val isTvDevice = (resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+            if (isTvDevice) {
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            } else {
+                // On mobile, keep navigation bar visible so BACK works.
+                View.SYSTEM_UI_FLAG_VISIBLE
+            }
+        }
         
         channelId = intent.getIntExtra("CHANNEL_ID", -1)
     }
@@ -717,6 +724,11 @@ class PlayerActivityVLC : ComponentActivity() {
     
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
+
+        // Allow BACK button to work normally (for mobile)
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            return super.dispatchKeyEvent(event)
+        }
 
         if (event.action == KeyEvent.ACTION_DOWN) {
             val digit = digitFromKeyCode(keyCode)
