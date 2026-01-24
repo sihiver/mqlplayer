@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-AVD_NAME="Television_720p"
+AVD_NAME="androd5.1"
 
 sdk_dir=""
 if [[ -f "local.properties" ]]; then

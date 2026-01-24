@@ -72,6 +72,13 @@ class PlayerActivityExo : ComponentActivity() {
 
     private var expiryWatcherJob: Job? = null
 
+    private var isClosingPlayer: Boolean = false
+    private var isReleasingPlayer: Boolean = false
+
+    private var idleCloseTimeoutMs: Long = 0L
+    private var lastUserInteractionAtMs: Long = 0L
+    private var idleCloseRunnable: Runnable? = null
+
     private fun startExpiryWatcher() {
         expiryWatcherJob?.cancel()
         expiryWatcherJob = lifecycleScope.launch {
@@ -120,6 +127,63 @@ class PlayerActivityExo : ComponentActivity() {
     private fun stopExpiryWatcher() {
         expiryWatcherJob?.cancel()
         expiryWatcherJob = null
+    }
+
+    private fun readIdleCloseTimeoutMs(): Long {
+        val prefs = getSharedPreferences("video_settings", Context.MODE_PRIVATE)
+        val minutes = prefs.getInt("idle_close_minutes", -1)
+        if (minutes >= 0) {
+            if (minutes <= 0) return 0L
+            return minutes.toLong() * 60L * 1000L
+        }
+
+        // Backward compat
+        val hours = prefs.getInt("idle_close_hours", 0)
+        if (hours <= 0) return 0L
+        return hours.toLong() * 60L * 60L * 1000L
+    }
+
+    private fun markUserInteraction() {
+        if (idleCloseTimeoutMs <= 0L) return
+        lastUserInteractionAtMs = SystemClock.elapsedRealtime()
+    }
+
+    private fun startIdleCloseWatcher() {
+        stopIdleCloseWatcher()
+        idleCloseTimeoutMs = readIdleCloseTimeoutMs()
+        if (idleCloseTimeoutMs <= 0L) return
+
+        lastUserInteractionAtMs = SystemClock.elapsedRealtime()
+        idleCloseRunnable = object : Runnable {
+            override fun run() {
+                val timeout = idleCloseTimeoutMs
+                if (timeout <= 0L) return
+
+                val idleFor = SystemClock.elapsedRealtime() - lastUserInteractionAtMs
+                if (idleFor >= timeout) {
+                    android.util.Log.d(
+                        "PlayerActivityExo",
+                        "Idle timeout reached (${timeout}ms), closing player"
+                    )
+                    closePlayerAndFinish("idle_timeout")
+                    return
+                }
+
+                uiHandler.postDelayed(this, 60_000L)
+            }
+        }
+        uiHandler.postDelayed(idleCloseRunnable!!, 60_000L)
+    }
+
+    private fun stopIdleCloseWatcher() {
+        idleCloseRunnable?.let(uiHandler::removeCallbacks)
+        idleCloseRunnable = null
+        idleCloseTimeoutMs = 0L
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        markUserInteraction()
     }
 
     private fun digitFromKeyCode(keyCode: Int): Int? {
@@ -240,8 +304,8 @@ class PlayerActivityExo : ComponentActivity() {
         // Handle back button
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                android.util.Log.d("PlayerActivityExo", "Back pressed, finishing activity")
-                finish()
+                android.util.Log.d("PlayerActivityExo", "Back pressed")
+                closePlayerAndFinish("back")
             }
         })
 
@@ -373,6 +437,7 @@ class PlayerActivityExo : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         startExpiryWatcher()
+        startIdleCloseWatcher()
     }
 
     override fun onPause() {
@@ -380,6 +445,7 @@ class PlayerActivityExo : ComponentActivity() {
         numericCommitRunnable = null
         numericChannelInput.setLength(0)
         numericInputDisplay.value = ""
+        stopIdleCloseWatcher()
         stopExpiryWatcher()
         super.onPause()
     }
@@ -675,23 +741,50 @@ class PlayerActivityExo : ComponentActivity() {
     }
     
     private fun releasePlayer() {
+        if (isReleasingPlayer) return
+        val player = exoPlayer ?: return
+        isReleasingPlayer = true
+
         android.util.Log.d("PlayerActivityExo", "Releasing ExoPlayer")
         try {
-            exoPlayer?.let { player ->
-                // Stop playback first
-                player.stop()
-                // Clear all media items
-                player.clearMediaItems()
-                // Remove listeners to prevent callbacks during release
-                player.clearVideoSurface()
-                // Release player resources
-                player.release()
+            try {
+                // Detach view first so Surface teardown happens cleanly.
+                playerView?.player = null
+            } catch (_: Exception) {
+                // Ignore view detach issues
             }
+
+            // Stop playback first
+            player.stop()
+            // Clear all media items
+            player.clearMediaItems()
+            // Clear video surface (best-effort)
+            player.clearVideoSurface()
+            // Release player resources
+            player.release()
         } catch (e: Exception) {
             android.util.Log.e("PlayerActivityExo", "Error releasing player: ${e.message}", e)
         } finally {
             exoPlayer = null
+            isReleasingPlayer = false
         }
+    }
+
+    private fun closePlayerAndFinish(reason: String) {
+        if (isClosingPlayer) return
+        if (isFinishing || isDestroyed) return
+        isClosingPlayer = true
+
+        android.util.Log.d("PlayerActivityExo", "Closing player & finishing (reason=$reason)")
+        try {
+            stopIdleCloseWatcher()
+            stopExpiryWatcher()
+        } catch (_: Exception) {
+            // Ignore
+        }
+
+        releasePlayer()
+        finish()
     }
     
     private fun switchToNextChannel(previous: Boolean) {

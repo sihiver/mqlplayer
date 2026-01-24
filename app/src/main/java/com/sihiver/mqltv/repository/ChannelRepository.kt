@@ -27,7 +27,7 @@ object ChannelRepository {
     private const val KEY_PLAYLIST_URLS = "playlist_urls"
 
     // Default embedded playlist URL (always kept unless user clears samples).
-    private const val DEFAULT_SAMPLE_PLAYLIST_URL = "http://192.168.15.10/playlist.m3u"
+    private const val DEFAULT_SAMPLE_PLAYLIST_URL = "http://192.168.15.1:5140/playlist.m3u"
 
     private fun playlistCacheKey(url: String, suffix: String): String {
         // Short, stable key derived from URL to avoid very long preference keys.

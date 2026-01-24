@@ -85,6 +85,13 @@ class PlayerActivityVLC : ComponentActivity() {
 
     private var expiryWatcherJob: Job? = null
 
+    @Volatile
+    private var isReleasingPlayer: Boolean = false
+
+    private var idleCloseTimeoutMs: Long = 0L
+    private var lastUserInteractionAtMs: Long = 0L
+    private var idleCloseRunnable: Runnable? = null
+
     private fun startExpiryWatcher() {
         expiryWatcherJob?.cancel()
         expiryWatcherJob = lifecycleScope.launch {
@@ -133,6 +140,78 @@ class PlayerActivityVLC : ComponentActivity() {
     private fun stopExpiryWatcher() {
         expiryWatcherJob?.cancel()
         expiryWatcherJob = null
+    }
+
+    private fun readIdleCloseTimeoutMs(): Long {
+        val prefs = getSharedPreferences("video_settings", MODE_PRIVATE)
+        val minutes = prefs.getInt("idle_close_minutes", -1)
+        if (minutes >= 0) {
+            if (minutes <= 0) return 0L
+            return minutes.toLong() * 60L * 1000L
+        }
+
+        // Backward compat
+        val hours = prefs.getInt("idle_close_hours", 0)
+        if (hours <= 0) return 0L
+        return hours.toLong() * 60L * 60L * 1000L
+    }
+
+    private fun markUserInteraction() {
+        if (idleCloseTimeoutMs <= 0L) return
+        lastUserInteractionAtMs = SystemClock.elapsedRealtime()
+    }
+
+    private fun startIdleCloseWatcher() {
+        stopIdleCloseWatcher()
+        idleCloseTimeoutMs = readIdleCloseTimeoutMs()
+        if (idleCloseTimeoutMs <= 0L) return
+
+        lastUserInteractionAtMs = SystemClock.elapsedRealtime()
+        idleCloseRunnable = object : Runnable {
+            override fun run() {
+                val timeout = idleCloseTimeoutMs
+                if (timeout <= 0L) return
+
+                val idleFor = SystemClock.elapsedRealtime() - lastUserInteractionAtMs
+                if (idleFor >= timeout) {
+                    android.util.Log.d(
+                        "PlayerActivityVLC",
+                        "Idle timeout reached (${timeout}ms), closing player"
+                    )
+                    closePlayerAndFinish("idle_timeout")
+                    return
+                }
+
+                uiHandler.postDelayed(this, 60_000L)
+            }
+        }
+        uiHandler.postDelayed(idleCloseRunnable!!, 60_000L)
+    }
+
+    private fun stopIdleCloseWatcher() {
+        idleCloseRunnable?.let(uiHandler::removeCallbacks)
+        idleCloseRunnable = null
+        idleCloseTimeoutMs = 0L
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        markUserInteraction()
+    }
+
+    private fun closePlayerAndFinish(reason: String) {
+        // Important for VLC: release/detach BEFORE the Surface is torn down, otherwise libVLC can crash.
+        android.util.Log.d("PlayerActivityVLC", "Closing player (reason=$reason)")
+        try {
+            stopIdleCloseWatcher()
+        } catch (_: Exception) {
+        }
+        try {
+            releasePlayer()
+        } catch (e: Exception) {
+            android.util.Log.w("PlayerActivityVLC", "releasePlayer failed during close", e)
+        }
+        finish()
     }
 
     private fun digitFromKeyCode(keyCode: Int): Int? {
@@ -224,6 +303,7 @@ class PlayerActivityVLC : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         startExpiryWatcher()
+        startIdleCloseWatcher()
     }
 
     override fun onPause() {
@@ -231,6 +311,7 @@ class PlayerActivityVLC : ComponentActivity() {
         numericCommitRunnable = null
         numericChannelInput.setLength(0)
         numericInputDisplay.value = ""
+        stopIdleCloseWatcher()
         stopExpiryWatcher()
         super.onPause()
     }
@@ -358,7 +439,7 @@ class PlayerActivityVLC : ComponentActivity() {
         
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                finish()
+                closePlayerAndFinish("back")
             }
         })
 
@@ -612,11 +693,17 @@ class PlayerActivityVLC : ComponentActivity() {
     }
     
     private fun releasePlayer() {
+        if (isReleasingPlayer) return
+        isReleasingPlayer = true
         try {
             vlcPlayer?.apply {
                 // Mute dan stop audio dulu sebelum release
                 volume = 0
                 audioTrack = -1
+                try {
+                    setEventListener(null)
+                } catch (_: Exception) {
+                }
                 stop()
                 detachViews()
                 release()
@@ -630,6 +717,8 @@ class PlayerActivityVLC : ComponentActivity() {
             savedAudioTrack = -1
         } catch (e: Exception) {
             android.util.Log.e("PlayerActivityVLC", "Error releasing player", e)
+        } finally {
+            isReleasingPlayer = false
         }
     }
     
@@ -658,6 +747,10 @@ class PlayerActivityVLC : ComponentActivity() {
         try {
             vlcPlayer?.apply {
                 volume = 0
+                try {
+                    setEventListener(null)
+                } catch (_: Exception) {
+                }
                 stop()
                 detachViews()
                 release()
@@ -703,6 +796,10 @@ class PlayerActivityVLC : ComponentActivity() {
         try {
             vlcPlayer?.apply {
                 volume = 0
+                try {
+                    setEventListener(null)
+                } catch (_: Exception) {
+                }
                 stop()
                 detachViews()
                 release()

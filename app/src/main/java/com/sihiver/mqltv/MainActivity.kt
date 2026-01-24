@@ -723,16 +723,38 @@ fun SettingsScreen(
     var showAccelerationDialog by remember { mutableStateOf(false) }
     var showAspectRatioDialog by remember { mutableStateOf(false) }
     var showPlayerDialog by remember { mutableStateOf(false) }
+    var showIdleCloseDialog by remember { mutableStateOf(false) }
     
     val orientationOptions = listOf("Auto", "Portrait", "Landscape", "Sensor Landscape")
     val accelerationOptions = listOf("HW (Hardware)", "HW+ (Hardware+)", "SW (Software)")
     val aspectRatioOptions = listOf("Fit", "Fill", "Zoom", "16:9", "4:3")
     val playerOptions = listOf("ExoPlayer", "VLC")
+    val idleCloseMinutesOptions = listOf(0, 1, 15, 30, 60, 120, 240, 480, 720)
     
     val currentOrientation = prefs.getString("orientation", "Sensor Landscape") ?: "Sensor Landscape"
     val currentAcceleration = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
     val currentAspectRatio = prefs.getString("aspect_ratio", "Fit") ?: "Fit"
     val currentPlayer = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+    val currentIdleCloseMinutes = run {
+        val storedMinutes = prefs.getInt("idle_close_minutes", -1)
+        if (storedMinutes >= 0) {
+            storedMinutes
+        } else {
+            // Backward compat: old setting stored as hours.
+            val hours = prefs.getInt("idle_close_hours", 0)
+            (hours.coerceAtLeast(0)) * 60
+        }
+    }
+
+    fun idleCloseLabel(minutes: Int): String {
+        if (minutes <= 0) return "Off"
+        return if (minutes < 60) {
+            "$minutes Menit"
+        } else {
+            val hours = minutes / 60
+            "$hours Jam"
+        }
+    }
     
     Column(
         modifier = Modifier
@@ -849,6 +871,30 @@ fun SettingsScreen(
                 )
                 Material3Text(
                     text = currentAspectRatio,
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        // Idle Auto Close Player
+        FocusableSettingsCard(
+            onActivate = { showIdleCloseDialog = true }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Material3Text(
+                    text = "Auto Close Player",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+                Material3Text(
+                    text = "Jika tidak ada interaksi: ${idleCloseLabel(currentIdleCloseMinutes)}",
                     fontSize = 14.sp,
                     color = Color.Gray,
                     modifier = Modifier.padding(top = 4.dp)
@@ -1104,6 +1150,71 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showPlayerDialog = false }) {
+                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                }
+            },
+            containerColor = Color(0xFF1E1E1E)
+        )
+    }
+
+    // Idle Auto Close Dialog
+    if (showIdleCloseDialog) {
+        AlertDialog(
+            onDismissRequest = { showIdleCloseDialog = false },
+            title = { Material3Text("Auto Close Player", color = Color.White) },
+            text = {
+                Column {
+                    idleCloseMinutesOptions.forEach { minutes ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    prefs.edit().putInt("idle_close_minutes", minutes).apply()
+                                    showIdleCloseDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = minutes == currentIdleCloseMinutes,
+                                onClick = {
+                                    prefs.edit().putInt("idle_close_minutes", minutes).apply()
+                                    showIdleCloseDialog = false
+                                },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFF00BCD4)
+                                )
+                            )
+                            Column(modifier = Modifier.padding(start = 8.dp)) {
+                                Material3Text(
+                                    text = idleCloseLabel(minutes),
+                                    color = Color.White
+                                )
+                                if (minutes <= 0) {
+                                    Material3Text(
+                                        text = "Tidak otomatis menutup player",
+                                        color = Color.Gray,
+                                        fontSize = 12.sp
+                                    )
+                                } else {
+                                    val label = if (minutes < 60) {
+                                        "$minutes menit"
+                                    } else {
+                                        "${minutes / 60} jam"
+                                    }
+                                    Material3Text(
+                                        text = "Menutup player setelah $label tanpa interaksi",
+                                        color = Color.Gray,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showIdleCloseDialog = false }) {
                     Material3Text("Tutup", color = Color(0xFF00BCD4))
                 }
             },
