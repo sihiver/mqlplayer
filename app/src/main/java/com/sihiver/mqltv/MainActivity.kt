@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -224,6 +225,20 @@ class MainActivity : ComponentActivity() {
 
                 CompositionLocalProvider(LocalIsTvMode provides isTvDevice) {
 
+                val performLogout = {
+                    AuthRepository.logout(this@MainActivity)
+                    ChannelRepository.clearPlaylistUrls(this@MainActivity)
+
+                    android.widget.Toast.makeText(
+                        this@MainActivity,
+                        "Logged out",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+
+                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                    finish()
+                }
+
                 BackHandler(enabled = !showExitDialog) {
                     showExitDialog = true
                 }
@@ -306,7 +321,9 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             )
-                            3 -> CenterMessage("Series - Coming Soon")
+                            3 -> ProfileScreen(
+                                onLogout = performLogout,
+                            )
                             4 -> SettingsScreen(
                                 onClearPlaylist = {
                                     ChannelRepository.clearAllChannels(this@MainActivity)
@@ -317,17 +334,7 @@ class MainActivity : ComponentActivity() {
                                     ).show()
                                 },
                                 onLogout = {
-                                    AuthRepository.logout(this@MainActivity)
-                                    ChannelRepository.clearPlaylistUrls(this@MainActivity)
-
-                                    android.widget.Toast.makeText(
-                                        this@MainActivity,
-                                        "Logged out",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-
-                                    startActivity(Intent(this@MainActivity, LoginActivity::class.java))
-                                    finish()
+                                    performLogout()
                                 },
                                 forceTvMode = forceTvMode,
                                 onForceTvModeChanged = { enabled ->
@@ -502,11 +509,11 @@ class MainActivity : ComponentActivity() {
                             )
                             TvMenuItem(
                                 index = 3,
-                                label = "Series",
+                                label = "Profile",
                                 icon = {
                                     Icon(
-                                        Icons.Default.Search,
-                                        contentDescription = "Series",
+                                        Icons.Default.AccountCircle,
+                                        contentDescription = "Profile",
                                         tint = if (selectedTab == 3) Color(0xFFE50914) else Color.White
                                     )
                                 },
@@ -578,7 +585,9 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 )
-                                3 -> CenterMessage("Series - Coming Soon")
+                                3 -> ProfileScreen(
+                                    onLogout = performLogout,
+                                )
                                 4 -> SettingsScreen(
                                     onClearPlaylist = {
                                         ChannelRepository.clearAllChannels(this@MainActivity)
@@ -589,17 +598,7 @@ class MainActivity : ComponentActivity() {
                                         ).show()
                                     },
                                     onLogout = {
-                                        AuthRepository.logout(this@MainActivity)
-                                        ChannelRepository.clearPlaylistUrls(this@MainActivity)
-
-                                        android.widget.Toast.makeText(
-                                            this@MainActivity,
-                                            "Logged out",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-
-                                        startActivity(Intent(this@MainActivity, LoginActivity::class.java))
-                                        finish()
+                                        performLogout()
                                     },
                                     forceTvMode = forceTvMode,
                                     onForceTvModeChanged = { enabled ->
@@ -641,8 +640,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                                 NavigationBarItem(
-                                    icon = { Icon(Icons.Default.Search, contentDescription = "Series", tint = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
-                                    label = { Material3Text("Series", color = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
+                                    icon = { Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
+                                    label = { Material3Text("Profile", color = if (selectedTab == 3) Color(0xFFE50914) else Color.Gray) },
                                     selected = selectedTab == 3,
                                     onClick = { selectedTab = 3 }
                                 )
@@ -698,6 +697,95 @@ fun CenterMessage(message: String) {
             fontSize = 20.sp,
             color = Color.Gray
         )
+    }
+}
+
+@Composable
+fun ProfileScreen(
+    onLogout: () -> Unit,
+) {
+    val context = LocalContext.current
+    val isTvMode = LocalIsTvMode.current
+
+    val username = AuthRepository.getUsername(context)
+    val expiresAtRaw = AuthRepository.getExpiresAtRaw(context)
+    val serverBaseUrl = AuthRepository.getServerBaseUrl(context)
+    val appKey = AuthRepository.getAppKey(context)
+
+    val screenPadding = if (isTvMode) 48.dp else 24.dp
+    val cardPadding = if (isTvMode) 28.dp else 20.dp
+    val titleSize = if (isTvMode) 26.sp else 20.sp
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF000000))
+            .padding(screenPadding),
+        contentAlignment = Alignment.Center,
+    ) {
+        Material3Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = if (isTvMode) 640.dp else 520.dp),
+            colors = Material3CardDefaults.cardColors(
+                containerColor = Color(0xFF1A1A1A),
+            ),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(cardPadding)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Material3Text(
+                    text = "Profile",
+                    fontSize = titleSize,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                )
+
+                Material3Text(
+                    text = "Username: ${if (username.isBlank()) "-" else username}",
+                    color = Color.White,
+                    fontSize = if (isTvMode) 16.sp else 14.sp,
+                )
+
+                Material3Text(
+                    text = "Expires: ${if (expiresAtRaw.isBlank()) "-" else expiresAtRaw}",
+                    color = Color.White,
+                    fontSize = if (isTvMode) 16.sp else 14.sp,
+                )
+
+                Material3Text(
+                    text = "Server: ${if (serverBaseUrl.isBlank()) "-" else serverBaseUrl}",
+                    color = Color.White,
+                    fontSize = if (isTvMode) 16.sp else 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Material3Text(
+                    text = "AppKey: ${if (appKey.isBlank()) "-" else appKey}",
+                    color = Color.White,
+                    fontSize = if (isTvMode) 16.sp else 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Material3Button(
+                    onClick = onLogout,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (isTvMode) 56.dp else 48.dp),
+                ) {
+                    Material3Text("Logout")
+                }
+            }
+        }
     }
 }
 
