@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,9 +16,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,12 +40,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -116,6 +126,7 @@ class LoginActivity : ComponentActivity() {
 
                 var isLoading by remember { mutableStateOf(false) }
                 var errorMessage by remember { mutableStateOf("") }
+                var loginFocused by remember { mutableStateOf(false) }
 
                 LaunchedEffect(isTvDevice) {
                     if (isTvDevice) {
@@ -228,83 +239,95 @@ class LoginActivity : ComponentActivity() {
                                     )
                                 }
 
-                                Button(
-                                    onClick = {
-                                        errorMessage = ""
-                                        isLoading = true
-                                        scope.launch {
-                                            val result = try {
-                                                login(serverBaseUrl, username, password)
-                                            } catch (e: Exception) {
-                                                LoginResult.Error(e.message ?: "Login failed")
-                                            }
+                                fun handleLoginClick() {
+                                    errorMessage = ""
+                                    isLoading = true
+                                    scope.launch {
+                                        val result = try {
+                                            login(serverBaseUrl, username, password)
+                                        } catch (e: Exception) {
+                                            LoginResult.Error(e.message ?: "Login failed")
+                                        }
 
-                                            when (result) {
-                                                is LoginResult.Success -> {
-                                                    AuthRepository.savePassword(this@LoginActivity, password)
+                                        when (result) {
+                                            is LoginResult.Success -> {
+                                                AuthRepository.savePassword(this@LoginActivity, password)
 
-                                                    AuthRepository.saveSession(
-                                                        context = this@LoginActivity,
-                                                        serverBaseUrl = result.serverBaseUrl,
-                                                        username = result.username,
-                                                        playlistUrl = result.playlistUrl,
-                                                        appKey = result.appKey,
-                                                        expiresAtRaw = result.expiresAtRaw,
-                                                        expiresAtMillis = result.expiresAtMillis,
-                                                        isExpiredServer = result.isExpired,
-                                                    )
+                                                AuthRepository.saveSession(
+                                                    context = this@LoginActivity,
+                                                    serverBaseUrl = result.serverBaseUrl,
+                                                    username = result.username,
+                                                    playlistUrl = result.playlistUrl,
+                                                    appKey = result.appKey,
+                                                    expiresAtRaw = result.expiresAtRaw,
+                                                    expiresAtMillis = result.expiresAtMillis,
+                                                    isExpiredServer = result.isExpired,
+                                                )
 
-                                                    ChannelRepository.clearPlaylistUrls(this@LoginActivity)
-                                                    ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
-                                                    ChannelRepository.ensureDefaultPlaylistUrl(this@LoginActivity)
+                                                ChannelRepository.clearPlaylistUrls(this@LoginActivity)
+                                                ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
+                                                ChannelRepository.ensureDefaultPlaylistUrl(this@LoginActivity)
 
-                                                    isLoading = false
-                                                    if (result.isExpired) {
-                                                        startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
-                                                        finish()
-                                                    } else {
-                                                        startActivity(Intent(this@LoginActivity, MainActivity::class.java))
-                                                        finish()
-                                                    }
-                                                }
-
-                                                is LoginResult.Error -> {
-                                                    isLoading = false
-                                                    errorMessage = result.message
-                                                }
-
-                                                is LoginResult.Expired -> {
-                                                    AuthRepository.savePassword(this@LoginActivity, password)
-
-                                                    AuthRepository.saveSession(
-                                                        context = this@LoginActivity,
-                                                        serverBaseUrl = result.serverBaseUrl,
-                                                        username = result.username,
-                                                        playlistUrl = result.playlistUrl,
-                                                        appKey = result.appKey,
-                                                        expiresAtRaw = result.expiresAtRaw,
-                                                        expiresAtMillis = result.expiresAtMillis,
-                                                        isExpiredServer = true,
-                                                    )
-
-                                                    if (result.playlistUrl.isNotBlank()) {
-                                                        ChannelRepository.clearPlaylistUrls(this@LoginActivity)
-                                                        ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
-                                                        ChannelRepository.ensureDefaultPlaylistUrl(this@LoginActivity)
-                                                    }
-
-                                                    isLoading = false
+                                                isLoading = false
+                                                if (result.isExpired) {
                                                     startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
+                                                    finish()
+                                                } else {
+                                                    startActivity(Intent(this@LoginActivity, MainActivity::class.java))
                                                     finish()
                                                 }
                                             }
+
+                                            is LoginResult.Error -> {
+                                                isLoading = false
+                                                errorMessage = result.message
+                                            }
+
+                                            is LoginResult.Expired -> {
+                                                AuthRepository.savePassword(this@LoginActivity, password)
+
+                                                AuthRepository.saveSession(
+                                                    context = this@LoginActivity,
+                                                    serverBaseUrl = result.serverBaseUrl,
+                                                    username = result.username,
+                                                    playlistUrl = result.playlistUrl,
+                                                    appKey = result.appKey,
+                                                    expiresAtRaw = result.expiresAtRaw,
+                                                    expiresAtMillis = result.expiresAtMillis,
+                                                    isExpiredServer = true,
+                                                )
+
+                                                if (result.playlistUrl.isNotBlank()) {
+                                                    ChannelRepository.clearPlaylistUrls(this@LoginActivity)
+                                                    ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
+                                                    ChannelRepository.ensureDefaultPlaylistUrl(this@LoginActivity)
+                                                }
+
+                                                isLoading = false
+                                                startActivity(Intent(this@LoginActivity, ExpiredActivity::class.java))
+                                                finish()
+                                            }
                                         }
-                                    },
-                                    enabled = !isLoading,
+                                    }
+                                }
+
+                                val loginShape = RoundedCornerShape(12.dp)
+                                val loginEnabled = !isLoading
+                                val loginBackground = if (loginEnabled) Color(0xFFE50914) else Color(0xFF7A0C10)
+
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(buttonHeight)
+                                        .background(loginBackground, loginShape)
                                         .focusRequester(loginButtonFocusRequester)
+                                        .onFocusChanged { loginFocused = it.isFocused }
+                                        .border(
+                                            border = if (isTvDevice && loginFocused) BorderStroke(2.dp, Color(0xFFE50914)) else BorderStroke(0.dp, Color.Transparent),
+                                            shape = loginShape,
+                                        )
+                                        .clickable(enabled = loginEnabled) { handleLoginClick() }
+                                        .focusable()
                                         .onKeyEvent { event ->
                                             if (!isTvDevice) return@onKeyEvent false
                                             if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
@@ -315,7 +338,8 @@ class LoginActivity : ComponentActivity() {
                                                 }
                                                 else -> false
                                             }
-                                        }
+                                        },
+                                    contentAlignment = Alignment.Center,
                                 ) {
                                     if (isLoading) {
                                         androidx.compose.foundation.layout.Row(
@@ -323,13 +347,29 @@ class LoginActivity : ComponentActivity() {
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             CircularProgressIndicator(
+                                                color = Color.White,
                                                 strokeWidth = 2.dp,
                                                 modifier = Modifier.height(20.dp),
                                             )
-                                            Text(text = "Loading...")
+                                            Text(
+                                                text = "Loading...",
+                                                color = Color.White,
+                                                fontSize = if (isTvDevice) 18.sp else 16.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 1,
+                                            )
                                         }
                                     } else {
-                                        Text(text = "Login")
+                                        Text(
+                                            text = "Login",
+                                            color = Color.White,
+                                            fontSize = if (isTvDevice) 18.sp else 16.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
                                     }
                                 }
                             }
