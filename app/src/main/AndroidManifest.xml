@@ -71,6 +71,14 @@
             android:launchMode="singleTop" />
 
         <activity
+            android:name=".PlayerActivityNative"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
+            android:screenOrientation="sensorLandscape"
+            android:launchMode="singleTop" />
+
+        <activity
             android:name=".ChannelListActivity"
             android:exported="false"
             android:theme="@style/Theme.MQLTV.ChannelListOverlay"

@@ -289,10 +289,10 @@ class MainActivity : ComponentActivity() {
                                         val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
                                         val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
 
-                                        val intent = if (playerType == "VLC") {
-                                            Intent(this@MainActivity, PlayerActivityVLC::class.java)
-                                        } else {
-                                            Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                        val intent = when (playerType) {
+                                            "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                            "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
+                                            else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
                                         }
                                         intent.putExtra("CHANNEL_ID", channel.id)
                                         startActivity(intent)
@@ -309,10 +309,10 @@ class MainActivity : ComponentActivity() {
                                         val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
                                         val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
 
-                                        val intent = if (playerType == "VLC") {
-                                            Intent(this@MainActivity, PlayerActivityVLC::class.java)
-                                        } else {
-                                            Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                        val intent = when (playerType) {
+                                            "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                            "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
+                                            else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
                                         }
                                         intent.putExtra("CHANNEL_ID", channel.id)
                                         startActivity(intent)
@@ -550,10 +550,10 @@ class MainActivity : ComponentActivity() {
                                             val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
                                             val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
 
-                                            val intent = if (playerType == "VLC") {
-                                                Intent(this@MainActivity, PlayerActivityVLC::class.java)
-                                            } else {
-                                                Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                            val intent = when (playerType) {
+                                                "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                                "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
+                                                else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
                                             }
                                             intent.putExtra("CHANNEL_ID", channel.id)
                                             startActivity(intent)
@@ -573,10 +573,10 @@ class MainActivity : ComponentActivity() {
                                             val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
                                             val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
 
-                                            val intent = if (playerType == "VLC") {
-                                                Intent(this@MainActivity, PlayerActivityVLC::class.java)
-                                            } else {
-                                                Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                            val intent = when (playerType) {
+                                                "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                                "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
+                                                else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
                                             }
                                             intent.putExtra("CHANNEL_ID", channel.id)
                                             startActivity(intent)
@@ -842,7 +842,7 @@ fun SettingsScreen(
     val orientationOptions = listOf("Auto", "Portrait", "Landscape", "Sensor Landscape")
     val accelerationOptions = listOf("HW (Hardware)", "HW+ (Hardware+)", "SW (Software)")
     val aspectRatioOptions = listOf("Fit", "Fill", "Zoom", "16:9", "4:3")
-    val playerOptions = listOf("ExoPlayer", "VLC")
+    val playerOptions = listOf("ExoPlayer", "VLC", "Native")
     val idleCloseMinutesOptions = listOf(0, 1, 15, 30, 60, 120, 240, 480, 720)
     
     val currentOrientation = prefs.getString("orientation", "Sensor Landscape") ?: "Sensor Landscape"
@@ -1276,7 +1276,11 @@ fun SettingsScreen(
                                     color = Color.White
                                 )
                                 Material3Text(
-                                    text = if (option == "VLC") "Lebih stabil untuk 1080p" else "Default player",
+                                    text = when (option) {
+                                        "VLC" -> "Lebih stabil untuk 1080p"
+                                        "Native" -> "Android native VideoView"
+                                        else -> "Default player"
+                                    },
                                     color = Color.Gray,
                                     fontSize = 12.sp
                                 )
