@@ -94,7 +94,13 @@ class LoginActivity : ComponentActivity() {
             MQLTVTheme {
                 val scope = rememberCoroutineScope()
 
-                val isTvDevice = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+                val forceTvMode = remember {
+                    getSharedPreferences("video_settings", MODE_PRIVATE)
+                        .getBoolean("force_tv_mode", false)
+                }
+                val actualTvDevice =
+                    (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+                val isTvDevice = actualTvDevice || forceTvMode
 
                 val usernameFocusRequester = remember { FocusRequester() }
                 val passwordFocusRequester = remember { FocusRequester() }
@@ -103,7 +109,6 @@ class LoginActivity : ComponentActivity() {
                 val serverBaseUrl by remember {
                     mutableStateOf(
                         AuthRepository.getServerBaseUrl(this@LoginActivity)
-                            .ifBlank { "http://192.168.15.10:8080" }
                     )
                 }
                 var username by remember { mutableStateOf(AuthRepository.getUsername(this@LoginActivity)) }
@@ -243,6 +248,7 @@ class LoginActivity : ComponentActivity() {
                                                         serverBaseUrl = result.serverBaseUrl,
                                                         username = result.username,
                                                         playlistUrl = result.playlistUrl,
+                                                        appKey = result.appKey,
                                                         expiresAtRaw = result.expiresAtRaw,
                                                         expiresAtMillis = result.expiresAtMillis,
                                                         isExpiredServer = result.isExpired,
@@ -275,6 +281,7 @@ class LoginActivity : ComponentActivity() {
                                                         serverBaseUrl = result.serverBaseUrl,
                                                         username = result.username,
                                                         playlistUrl = result.playlistUrl,
+                                                        appKey = result.appKey,
                                                         expiresAtRaw = result.expiresAtRaw,
                                                         expiresAtMillis = result.expiresAtMillis,
                                                         isExpiredServer = true,
@@ -338,6 +345,7 @@ class LoginActivity : ComponentActivity() {
             val serverBaseUrl: String,
             val username: String,
             val playlistUrl: String,
+            val appKey: String,
             val expiresAtRaw: String,
             val expiresAtMillis: Long,
             val isExpired: Boolean,
@@ -346,6 +354,7 @@ class LoginActivity : ComponentActivity() {
         data class Expired(
             val serverBaseUrl: String,
             val username: String,
+            val appKey: String,
             val expiresAtRaw: String,
             val expiresAtMillis: Long,
             val message: String,
@@ -356,7 +365,9 @@ class LoginActivity : ComponentActivity() {
     }
 
     private suspend fun login(serverBaseUrlRaw: String, usernameRaw: String, passwordRaw: String): LoginResult {
-        val serverBaseUrl = serverBaseUrlRaw.trim().ifBlank { "http://192.168.0.2:8080" }.removeSuffix("/")
+        val inputTrimmed = serverBaseUrlRaw.trim()
+        val hadScheme = inputTrimmed.contains("://")
+        val serverBaseUrl = AuthRepository.normalizeServerBaseUrl(inputTrimmed)
         val username = usernameRaw.trim()
         val password = passwordRaw.trim()
 
@@ -364,112 +375,136 @@ class LoginActivity : ComponentActivity() {
         if (password.isBlank()) return LoginResult.Error("Password wajib diisi")
 
         return withContext(Dispatchers.IO) {
-            val url = URL("$serverBaseUrl/api/user/login")
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 15000
-                readTimeout = 15000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Accept", "application/json")
-            }
+            fun doLogin(baseUrl: String): Pair<Int, JSONObject> {
+                val url = URL("$baseUrl/public/login")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                }
 
-            val payload = JSONObject()
-                .put("username", username)
-                .put("password", password)
-                .toString()
+                val payload = JSONObject()
+                    .put("username", username)
+                    .put("password", password)
+                    .toString()
 
-            connection.outputStream.use { os ->
-                os.write(payload.toByteArray(Charsets.UTF_8))
-            }
+                connection.outputStream.use { os ->
+                    os.write(payload.toByteArray(Charsets.UTF_8))
+                }
 
-            val status = connection.responseCode
-            val body = try {
-                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-                BufferedReader(InputStreamReader(stream)).use { it.readText() }
-            } catch (_: Exception) {
-                ""
-            }
-
-            val json = try {
-                if (body.isNotBlank()) JSONObject(body) else JSONObject()
-            } catch (_: Exception) {
-                JSONObject()
-            }
-
-            if (status !in 200..299) {
-                val message = json.optString("message", "").ifBlank { "HTTP $status" }
-                val data = json.optJSONObject("data")
-
-                val expiresAtRaw = data?.optString("expires_at", "")?.trim().orEmpty()
-                val expiresAtMillis = AuthRepository.parseExpiresAtMillis(expiresAtRaw)
-                val isExpiredServer = data?.optBoolean("is_expired", false) ?: false
-                val daysRemaining = data?.optInt("days_remaining", 0) ?: 0
-
-                val playlistPath = data?.optString("playlist_url", "")?.trim().orEmpty()
-                val playlistUrl = if (playlistPath.startsWith("http://") || playlistPath.startsWith("https://")) {
-                    playlistPath
-                } else if (playlistPath.isNotBlank()) {
-                    val normalized = if (playlistPath.startsWith("/")) playlistPath else "/$playlistPath"
-                    "$serverBaseUrl$normalized"
-                } else {
+                val status = connection.responseCode
+                val body = try {
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    BufferedReader(InputStreamReader(stream)).use { it.readText() }
+                } catch (_: Exception) {
                     ""
                 }
 
-                val looksExpired =
-                    status == 403 ||
-                        isExpiredServer ||
-                        daysRemaining <= 0 ||
-                        message.contains("expired", ignoreCase = true) ||
-                        message.contains("kadaluarsa", ignoreCase = true)
-
-                if (looksExpired) {
-                    return@withContext LoginResult.Expired(
-                        serverBaseUrl = serverBaseUrl,
-                        username = username,
-                        expiresAtRaw = expiresAtRaw,
-                        expiresAtMillis = expiresAtMillis,
-                        message = message,
-                        playlistUrl = playlistUrl,
-                    )
+                val json = try {
+                    if (body.isNotBlank()) JSONObject(body) else JSONObject()
+                } catch (_: Exception) {
+                    JSONObject()
                 }
 
-                return@withContext LoginResult.Error("HTTP $status: $body")
+                return status to json
             }
-            val code = json.optInt("code", -1)
-            if (code != 0) {
-                val message = json.optString("message", "Login gagal")
+
+            var usedBaseUrl = serverBaseUrl
+            val (status, json) = try {
+                doLogin(usedBaseUrl)
+            } catch (e: Exception) {
+                // If user entered a host without scheme, try http:// as fallback.
+                if (!hadScheme) {
+                    val host = inputTrimmed.ifBlank { "iptv.mqlspot.my.id:8088" }.removeSuffix("/")
+                    val httpBase = AuthRepository.normalizeServerBaseUrl("http://$host")
+                    usedBaseUrl = httpBase
+                    try {
+                        doLogin(usedBaseUrl)
+                    } catch (_: Exception) {
+                        throw e
+                    }
+                } else {
+                    throw e
+                }
+            }
+
+            if (status !in 200..299) {
+                val message = json.optString("error", "").ifBlank { "HTTP $status" }
                 return@withContext LoginResult.Error(message)
             }
-
-            val data = json.optJSONObject("data")
-                ?: return@withContext LoginResult.Error("Response tidak valid: data kosong")
-
-            val playlistPath = data.optString("playlist_url", "").trim()
-            if (playlistPath.isBlank()) {
-                return@withContext LoginResult.Error("Response tidak valid: playlist_url kosong")
+            // mql_manager public login response:
+            // { ok: true, user: { appKey, expiresAt?, ... }, publicPlaylistUrl: "/public/users/{appKey}/playlist.m3u" }
+            val ok = json.optBoolean("ok", false)
+            if (!ok) {
+                return@withContext LoginResult.Error("Login gagal")
             }
 
-            val expiresAtRaw = data.optString("expires_at", "").trim()
+            val user = json.optJSONObject("user")
+                ?: return@withContext LoginResult.Error("Response tidak valid: user kosong")
+
+            val appKey = user.optString("appKey", "").trim()
+            if (appKey.isBlank()) {
+                return@withContext LoginResult.Error("Response tidak valid: appKey kosong")
+            }
+
+            val playlistPath = json.optString("publicPlaylistUrl", "").trim()
+            if (playlistPath.isBlank()) {
+                return@withContext LoginResult.Error("Response tidak valid: publicPlaylistUrl kosong")
+            }
+
+            // Safety check: playlist URL should correspond to the same appKey.
+            // Expected pattern: /public/users/{appKey}/playlist.m3u
+            run {
+                val expectedSegment = "/public/users/${appKey}/"
+                val candidate = if (playlistPath.startsWith("http://") || playlistPath.startsWith("https://")) {
+                    try {
+                        URL(playlistPath).path
+                    } catch (_: Exception) {
+                        playlistPath
+                    }
+                } else {
+                    playlistPath
+                }
+
+                if (candidate.contains("/public/users/") && !candidate.contains(expectedSegment)) {
+                    return@withContext LoginResult.Error("Playlist tidak sesuai user (appKey mismatch)")
+                }
+            }
+
+            val expiresAtRaw = user.optString("expiresAt", "").trim()
             val expiresAtMillis = AuthRepository.parseExpiresAtMillis(expiresAtRaw)
-            val isExpiredServer = data.optBoolean("is_expired", false)
-            val daysRemaining = data.optInt("days_remaining", 0)
-            val isExpired = isExpiredServer || daysRemaining <= 0 || (expiresAtMillis > 0L && System.currentTimeMillis() >= expiresAtMillis)
+            val isExpired = expiresAtMillis > 0L && System.currentTimeMillis() >= expiresAtMillis
 
             val fullPlaylistUrl = if (playlistPath.startsWith("http://") || playlistPath.startsWith("https://")) {
                 playlistPath
             } else {
                 val normalized = if (playlistPath.startsWith("/")) playlistPath else "/$playlistPath"
-                "$serverBaseUrl$normalized"
+                "$usedBaseUrl$normalized"
+            }
+
+            if (isExpired) {
+                return@withContext LoginResult.Expired(
+                    serverBaseUrl = usedBaseUrl,
+                    username = username,
+                    appKey = appKey,
+                    expiresAtRaw = expiresAtRaw,
+                    expiresAtMillis = expiresAtMillis,
+                    message = "Akun sudah expired",
+                    playlistUrl = fullPlaylistUrl,
+                )
             }
 
             LoginResult.Success(
-                serverBaseUrl = serverBaseUrl,
+                serverBaseUrl = usedBaseUrl,
                 username = username,
                 playlistUrl = fullPlaylistUrl,
+                appKey = appKey,
                 expiresAtRaw = expiresAtRaw,
                 expiresAtMillis = expiresAtMillis,
-                isExpired = isExpired,
+                isExpired = false,
             )
         }
     }

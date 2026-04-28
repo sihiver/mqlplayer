@@ -14,6 +14,8 @@ import java.util.TimeZone
 import kotlin.math.max
 
 object AuthRepository {
+    private const val DEFAULT_PUBLIC_SERVER_BASE_URL = "http://iptv.mqlspot.my.id:8088"
+
     private const val PREFS_AUTH = "mqltv_auth"
     private const val PREFS_SECURE = "mqltv_secure"
 
@@ -21,6 +23,7 @@ object AuthRepository {
     private const val KEY_SERVER_BASE_URL = "server_base_url"
     private const val KEY_USERNAME = "username"
     private const val KEY_PLAYLIST_URL = "playlist_url"
+    private const val KEY_APP_KEY = "app_key"
 
     private const val KEY_EXPIRES_AT_RAW = "expires_at_raw"
     private const val KEY_EXPIRES_AT_MILLIS = "expires_at_millis"
@@ -61,7 +64,39 @@ object AuthRepository {
 
     fun getServerBaseUrl(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_SERVER_BASE_URL, "")?.trim().orEmpty()
+        val raw = prefs.getString(KEY_SERVER_BASE_URL, "")?.trim().orEmpty()
+        val preferred = if (isLikelyLocalDevUrl(raw)) "" else raw
+        return normalizeServerBaseUrl(preferred)
+    }
+
+    private fun isLikelyLocalDevUrl(rawInput: String): Boolean {
+        val trimmed = rawInput.trim()
+        if (trimmed.isBlank()) return false
+
+        val withoutScheme = trimmed.substringAfter("://", trimmed)
+        val hostPort = withoutScheme.substringBefore('/').trim()
+        val host = hostPort.substringBefore(':').trim().lowercase(Locale.US)
+
+        if (host == "localhost" || host == "127.0.0.1") return true
+        if (host.startsWith("192.168.")) return true
+        if (host.startsWith("10.")) return true
+        if (host.startsWith("172.")) return true
+
+        return false
+    }
+
+    fun normalizeServerBaseUrl(rawInput: String): String {
+        val trimmed = rawInput.trim()
+        val base = trimmed.ifBlank { DEFAULT_PUBLIC_SERVER_BASE_URL }
+
+        val withScheme = if (base.contains("://")) {
+            base
+        } else {
+            // If user stored just a host (e.g. iptv.mqlspot.my.id:8088), prefer HTTP by default.
+            "http://$base"
+        }
+
+        return withScheme.removeSuffix("/")
     }
 
     fun getUsername(context: Context): String {
@@ -72,6 +107,11 @@ object AuthRepository {
     fun getPlaylistUrl(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
         return prefs.getString(KEY_PLAYLIST_URL, "")?.trim().orEmpty()
+    }
+
+    fun getAppKey(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_APP_KEY, "")?.trim().orEmpty()
     }
 
     fun getExpiresAtRaw(context: Context): String {
@@ -175,7 +215,11 @@ object AuthRepository {
     }
 
     /**
-     * Probe account status by calling /api/user/login with stored credentials.
+     * Probe account status against mql_manager public API.
+     *
+     * Prefers GET /public/users/{appKey}/status when appKey exists.
+     * Falls back to POST /public/login (requires stored credentials).
+     *
      * This is more sensitive than playlist probing, so it is throttled.
      */
     suspend fun probeExpiredFromLoginIfNeeded(context: Context, minIntervalMs: Long = 5 * 60 * 1000L): Boolean {
@@ -185,17 +229,117 @@ object AuthRepository {
         if (now - last < minIntervalMs) return false
 
         prefs.edit().putLong(KEY_LAST_LOGIN_PROBE_AT, now).apply()
-        return probeExpiredFromLogin(context)
+
+        // Prefer status endpoint if possible (no password needed)
+        val appKey = getAppKey(context)
+        if (appKey.isNotBlank()) {
+            val byStatus = probeExpiredFromPublicStatus(context, appKey)
+            if (byStatus != null) return byStatus
+        }
+
+        return probeExpiredFromPublicLogin(context)
     }
 
-    private suspend fun probeExpiredFromLogin(context: Context): Boolean {
+    private suspend fun probeExpiredFromPublicStatus(context: Context, appKey: String): Boolean? {
+        val serverBaseUrl = getServerBaseUrl(context).trim().ifBlank { return null }.removeSuffix("/")
+
+        return withContext(Dispatchers.IO) {
+            fun runProbe(baseUrl: String): Boolean {
+                val url = URL("$baseUrl/public/users/${appKey.trim()}/status")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    instanceFollowRedirects = true
+                    setRequestProperty("Accept", "application/json")
+                }
+
+                val status = try {
+                    connection.responseCode
+                } catch (_: Exception) {
+                    -1
+                }
+
+                val body = try {
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                } catch (_: Exception) {
+                    ""
+                }
+
+                if (status !in 200..299) {
+                    // 404 / 401 usually means invalid appKey or removed user.
+                    if (status == 401 || status == 403 || status == 404) {
+                        android.util.Log.w("AuthRepository", "Status probe got HTTP $status. Marking session expired.")
+                        markExpiredServer(context)
+                        return true
+                    }
+
+                    android.util.Log.d("AuthRepository", "Status probe HTTP $status")
+                    return false
+                }
+
+                val json = try {
+                    if (body.isNotBlank()) JSONObject(body) else JSONObject()
+                } catch (_: Exception) {
+                    JSONObject()
+                }
+
+                val user = json.optJSONObject("user")
+                val expiresAtRaw = user?.optString("expiresAt", "")?.trim().orEmpty()
+                val expiresAtMillis = parseExpiresAtMillis(expiresAtRaw)
+                val isExpired = expiresAtMillis > 0L && System.currentTimeMillis() >= expiresAtMillis
+
+                val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString(KEY_EXPIRES_AT_RAW, expiresAtRaw)
+                    .putLong(KEY_EXPIRES_AT_MILLIS, expiresAtMillis)
+                    .putBoolean(KEY_IS_EXPIRED_SERVER, isExpired)
+                    .putLong(KEY_LAST_STATUS_CHECKED_AT, System.currentTimeMillis())
+                    .apply()
+
+                if (isExpired) {
+                    android.util.Log.w("AuthRepository", "Status probe indicates expired for appKey=$appKey")
+                } else {
+                    android.util.Log.d("AuthRepository", "Status probe OK for appKey=$appKey")
+                }
+
+                return isExpired
+            }
+
+            try {
+                runProbe(serverBaseUrl)
+            } catch (e: Exception) {
+                // One-time fallback for environments where HTTPS is blocked but HTTP works.
+                if (serverBaseUrl.startsWith("https://")) {
+                    val httpBaseUrl = "http://" + serverBaseUrl.removePrefix("https://")
+                    try {
+                        val result = runProbe(httpBaseUrl)
+                        context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+                            .edit()
+                            .putString(KEY_SERVER_BASE_URL, httpBaseUrl)
+                            .apply()
+                        result
+                    } catch (_: Exception) {
+                        android.util.Log.w("AuthRepository", "Status probe failed: ${e.message}")
+                        null
+                    }
+                } else {
+                    android.util.Log.w("AuthRepository", "Status probe failed: ${e.message}")
+                    null
+                }
+            }
+        }
+    }
+
+    private suspend fun probeExpiredFromPublicLogin(context: Context): Boolean {
         val serverBaseUrl = getServerBaseUrl(context).trim().ifBlank { return false }.removeSuffix("/")
         val username = getUsername(context).trim().ifBlank { return false }
         val password = getPassword(context).trim().ifBlank { return false }
 
         return withContext(Dispatchers.IO) {
-            try {
-                val url = URL("$serverBaseUrl/api/user/login")
+            fun runLogin(baseUrl: String): Boolean {
+                val url = URL("$baseUrl/public/login")
                 val connection = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 8000
@@ -228,46 +372,57 @@ object AuthRepository {
                     JSONObject()
                 }
 
-                val data = json.optJSONObject("data")
-                val expiresAtRaw = data?.optString("expires_at", "")?.trim().orEmpty()
+                // /public/login returns: { ok: true, user: {...}, publicPlaylistUrl: "/public/users/{appKey}/playlist.m3u" }
+                val user = json.optJSONObject("user")
+                val expiresAtRaw = user?.optString("expiresAt", "")?.trim().orEmpty()
                 val expiresAtMillis = parseExpiresAtMillis(expiresAtRaw)
-                val isExpiredServer = data?.optBoolean("is_expired", false) ?: false
-                val daysRemaining = data?.optInt("days_remaining", 0) ?: 0
-                val looksExpired =
-                    status == 403 ||
-                        isExpiredServer ||
-                        daysRemaining <= 0 ||
-                        json.optString("message", "").contains("expired", ignoreCase = true)
+                val isExpired = expiresAtMillis > 0L && System.currentTimeMillis() >= expiresAtMillis
 
-                if (looksExpired) {
-                    android.util.Log.w("AuthRepository", "Login probe indicates expired. status=$status user=$username")
-                    // Keep the most recent expiry info if provided.
-                    val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
-                    prefs.edit()
-                        .putString(KEY_EXPIRES_AT_RAW, expiresAtRaw)
-                        .putLong(KEY_EXPIRES_AT_MILLIS, expiresAtMillis)
-                        .putBoolean(KEY_IS_EXPIRED_SERVER, true)
-                        .putLong(KEY_LAST_STATUS_CHECKED_AT, System.currentTimeMillis())
+                val appKey = user?.optString("appKey", "")?.trim().orEmpty()
+                if (appKey.isNotBlank()) {
+                    context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+                        .edit()
+                        .putString(KEY_APP_KEY, appKey)
                         .apply()
-                    return@withContext true
                 }
 
-                if (status in 200..299) {
-                    // Account is valid again; clear expired flag and refresh expiry info.
-                    val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
-                    prefs.edit()
-                        .putString(KEY_EXPIRES_AT_RAW, expiresAtRaw)
-                        .putLong(KEY_EXPIRES_AT_MILLIS, expiresAtMillis)
-                        .putBoolean(KEY_IS_EXPIRED_SERVER, false)
-                        .putLong(KEY_LAST_STATUS_CHECKED_AT, System.currentTimeMillis())
-                        .apply()
-                    android.util.Log.d("AuthRepository", "Login probe OK. status=$status user=$username")
+                val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString(KEY_EXPIRES_AT_RAW, expiresAtRaw)
+                    .putLong(KEY_EXPIRES_AT_MILLIS, expiresAtMillis)
+                    .putBoolean(KEY_IS_EXPIRED_SERVER, isExpired)
+                    .putLong(KEY_LAST_STATUS_CHECKED_AT, System.currentTimeMillis())
+                    .apply()
+
+                if (isExpired) {
+                    android.util.Log.w("AuthRepository", "Public login probe indicates expired. status=$status user=$username")
+                } else {
+                    android.util.Log.d("AuthRepository", "Public login probe OK. status=$status user=$username")
                 }
 
-                false
+                return isExpired
+            }
+
+            try {
+                runLogin(serverBaseUrl)
             } catch (e: Exception) {
-                android.util.Log.w("AuthRepository", "Login probe failed: ${e.message}")
-                false
+                if (serverBaseUrl.startsWith("https://")) {
+                    val httpBaseUrl = "http://" + serverBaseUrl.removePrefix("https://")
+                    try {
+                        val result = runLogin(httpBaseUrl)
+                        context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+                            .edit()
+                            .putString(KEY_SERVER_BASE_URL, httpBaseUrl)
+                            .apply()
+                        result
+                    } catch (_: Exception) {
+                        android.util.Log.w("AuthRepository", "Public login probe failed: ${e.message}")
+                        false
+                    }
+                } else {
+                    android.util.Log.w("AuthRepository", "Public login probe failed: ${e.message}")
+                    false
+                }
             }
         }
     }
@@ -366,10 +521,12 @@ object AuthRepository {
         serverBaseUrl: String,
         username: String,
         playlistUrl: String,
+        appKey: String = "",
         expiresAtRaw: String = "",
         expiresAtMillis: Long = 0L,
         isExpiredServer: Boolean = false,
     ) {
+        val normalizedServerBaseUrl = normalizeServerBaseUrl(serverBaseUrl)
         val normalizedRaw = expiresAtRaw.trim()
         val normalizedMillis = if (expiresAtMillis > 0L) {
             expiresAtMillis
@@ -382,9 +539,10 @@ object AuthRepository {
         val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean(KEY_LOGGED_IN, true)
-            .putString(KEY_SERVER_BASE_URL, serverBaseUrl.trim())
+            .putString(KEY_SERVER_BASE_URL, normalizedServerBaseUrl)
             .putString(KEY_USERNAME, username.trim())
             .putString(KEY_PLAYLIST_URL, playlistUrl.trim())
+            .putString(KEY_APP_KEY, appKey.trim())
             .putString(KEY_EXPIRES_AT_RAW, normalizedRaw)
             .putLong(KEY_EXPIRES_AT_MILLIS, normalizedMillis)
             .putBoolean(KEY_IS_EXPIRED_SERVER, isExpiredServer)
@@ -401,6 +559,7 @@ object AuthRepository {
         prefs.edit()
             .putBoolean(KEY_LOGGED_IN, false)
             .remove(KEY_PLAYLIST_URL)
+            .remove(KEY_APP_KEY)
             .remove(KEY_EXPIRES_AT_RAW)
             .remove(KEY_EXPIRES_AT_MILLIS)
             .remove(KEY_IS_EXPIRED_SERVER)

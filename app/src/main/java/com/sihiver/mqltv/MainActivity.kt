@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
@@ -37,6 +39,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Button as Material3Button
+import androidx.compose.material3.ButtonDefaults as Material3ButtonDefaults
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -79,8 +83,11 @@ import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+
+private const val PREFS_VIDEO_SETTINGS = "video_settings"
+private const val KEY_FORCE_TV_MODE = "force_tv_mode"
+
+val LocalIsTvMode = staticCompositionLocalOf { false }
 
 @androidx.media3.common.util.UnstableApi
 class MainActivity : ComponentActivity() {
@@ -210,7 +217,12 @@ class MainActivity : ComponentActivity() {
             MQLTVTheme {
                 var selectedTab by remember { mutableStateOf(0) }
                 var showExitDialog by remember { mutableStateOf(false) }
-                val isTvDevice = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+                val prefs = remember { getSharedPreferences(PREFS_VIDEO_SETTINGS, Context.MODE_PRIVATE) }
+                var forceTvMode by remember { mutableStateOf(prefs.getBoolean(KEY_FORCE_TV_MODE, false)) }
+                val actualTvDevice = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+                val isTvDevice = actualTvDevice || forceTvMode
+
+                CompositionLocalProvider(LocalIsTvMode provides isTvDevice) {
 
                 BackHandler(enabled = !showExitDialog) {
                     showExitDialog = true
@@ -316,7 +328,12 @@ class MainActivity : ComponentActivity() {
 
                                     startActivity(Intent(this@MainActivity, LoginActivity::class.java))
                                     finish()
-                                }
+                                },
+                                forceTvMode = forceTvMode,
+                                onForceTvModeChanged = { enabled ->
+                                    forceTvMode = enabled
+                                    prefs.edit().putBoolean(KEY_FORCE_TV_MODE, enabled).apply()
+                                },
                             )
                         }
                     }
@@ -583,7 +600,12 @@ class MainActivity : ComponentActivity() {
 
                                         startActivity(Intent(this@MainActivity, LoginActivity::class.java))
                                         finish()
-                                    }
+                                    },
+                                    forceTvMode = forceTvMode,
+                                    onForceTvModeChanged = { enabled ->
+                                        forceTvMode = enabled
+                                        prefs.edit().putBoolean(KEY_FORCE_TV_MODE, enabled).apply()
+                                    },
                                 )
                             }
                         }
@@ -642,6 +664,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                }
             }
         }
     }
@@ -681,9 +705,11 @@ fun CenterMessage(message: String) {
 fun SettingsScreen(
     onClearPlaylist: () -> Unit,
     onLogout: () -> Unit,
+    forceTvMode: Boolean,
+    onForceTvModeChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("video_settings", Context.MODE_PRIVATE)
+    val prefs = context.getSharedPreferences(PREFS_VIDEO_SETTINGS, Context.MODE_PRIVATE)
 
     @Composable
     fun FocusableSettingsCard(
@@ -772,6 +798,29 @@ fun SettingsScreen(
             color = Color.White,
             modifier = Modifier.padding(bottom = 12.dp)
         )
+
+        FocusableSettingsCard(
+            onActivate = { onForceTvModeChanged(!forceTvMode) }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Material3Text(
+                    text = "Force TV Mode (Preview)",
+                    fontSize = 16.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+                Material3Text(
+                    text = if (forceTvMode) "On" else "Off",
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
         
         // Video Preferences Section
         Material3Text(
@@ -1241,7 +1290,7 @@ fun LiveChannelsScreen(
     var searchResults by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var searchResultsTitle by remember { mutableStateOf("Search") }
     val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
-    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val isTv = LocalIsTvMode.current
     val initialFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
 
@@ -1293,6 +1342,16 @@ fun LiveChannelsScreen(
     val recentlyWatched = remember(refreshKey) {
         ChannelRepository.getRecentlyWatched()
     }
+
+    val featuredChannel = remember(channels, favorites, recentlyWatched) {
+        // Prefer Event category, then recently watched, then favorites, then first available.
+        channels.firstOrNull { it.category.trim().equals("event", ignoreCase = true) }
+            ?: recentlyWatched.firstOrNull()
+            ?: favorites.firstOrNull()
+            ?: channels.firstOrNull()
+    }
+
+    val featuredPlayFocusRequester = remember { FocusRequester() }
     
     // Show full list when "See all" is clicked
     if (showAllRecent) {
@@ -1570,6 +1629,113 @@ fun LiveChannelsScreen(
                             tint = Color(0xFFE50914),
                             modifier = Modifier.size(28.dp)
                         )
+                    }
+                }
+            }
+        }
+
+        // TV Hero / Featured section
+        item {
+            if (isTv && featuredChannel != null) {
+                Material3Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .height(260.dp),
+                    colors = Material3CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // Background image (logo) if present
+                        if (featuredChannel.logo.isNotBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(featuredChannel.logo)
+                                    .crossfade(true)
+                                    .allowHardware(false)
+                                    .build(),
+                                contentDescription = featuredChannel.name,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        // Dark overlay for readability
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = if (featuredChannel.logo.isNotBlank()) 0.55f else 0.15f))
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Material3Text(
+                                    text = featuredChannel.category.ifBlank { "Live" },
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    fontSize = 14.sp
+                                )
+                                Material3Text(
+                                    text = featuredChannel.name,
+                                    color = Color.White,
+                                    fontSize = 34.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Material3Text(
+                                    text = "Tekan OK untuk mulai menonton",
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    fontSize = 16.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Material3Button(
+                                    onClick = { onChannelClick(featuredChannel) },
+                                    modifier = Modifier
+                                        .height(52.dp)
+                                        .focusRequester(featuredPlayFocusRequester)
+                                        .onKeyEvent { event ->
+                                            if (!isTv) return@onKeyEvent false
+                                            if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                                            when (event.key) {
+                                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                                    onChannelClick(featuredChannel); true
+                                                }
+                                                else -> false
+                                            }
+                                        }
+                                        .focusable(),
+                                    colors = Material3ButtonDefaults.buttonColors(
+                                        containerColor = Color.White,
+                                        contentColor = Color.Black
+                                    ),
+                                    shape = RoundedCornerShape(14.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "Play",
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Material3Text(text = "Play")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                LaunchedEffect(featuredChannel.id) {
+                    if (!initialFocusRequested) {
+                        featuredPlayFocusRequester.requestFocus()
+                        initialFocusRequested = true
                     }
                 }
             }
@@ -1919,7 +2085,7 @@ fun FullChannelListScreen(
 
 @Composable
 fun ChannelListItem(channel: Channel, onClick: (Channel) -> Unit) {
-    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val isTv = LocalIsTvMode.current
     val context = LocalContext.current
 
     Material3Card(
@@ -2005,7 +2171,7 @@ fun ChannelCardCompact(
     isFavorite: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val isTv = LocalIsTvMode.current
     val context = LocalContext.current
     val cardWidth = if (isTv) 180.dp else 120.dp
     val cardHeight = if (isTv) 200.dp else 140.dp
@@ -2173,7 +2339,7 @@ fun ChannelCard(
 
 @Composable
 fun ChannelCardContent(channel: Channel) {
-    val isTv = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
+    val isTv = LocalIsTvMode.current
     val context = LocalContext.current
 
     Box(
