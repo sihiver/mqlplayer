@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
+import com.sihiver.mqltv.service.PresenceManager
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -91,6 +92,8 @@ class PlayerActivityVLC : ComponentActivity() {
     private var idleCloseTimeoutMs: Long = 0L
     private var lastUserInteractionAtMs: Long = 0L
     private var idleCloseRunnable: Runnable? = null
+
+    private lateinit var presenceManager: PresenceManager
 
     private fun startExpiryWatcher() {
         expiryWatcherJob?.cancel()
@@ -202,6 +205,10 @@ class PlayerActivityVLC : ComponentActivity() {
     private fun closePlayerAndFinish(reason: String) {
         // Important for VLC: release/detach BEFORE the Surface is torn down, otherwise libVLC can crash.
         android.util.Log.d("PlayerActivityVLC", "Closing player (reason=$reason)")
+        
+        // Send offline presence
+        presenceManager.sendOfflinePresence()
+        
         try {
             stopIdleCloseWatcher()
         } catch (_: Exception) {
@@ -409,6 +416,19 @@ class PlayerActivityVLC : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         android.util.Log.d("PlayerActivityVLC", "onCreate - using VLC player")
+        
+        // Initialize presence manager for tracking user online/offline status
+        presenceManager = PresenceManager(this)
+
+        if (isLikelyEmulator()) {
+            android.widget.Toast.makeText(
+                this,
+                "VLC player tidak didukung di emulator ini",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            finish()
+            return
+        }
 
         // Safety gate
         if (!AuthRepository.isLoggedIn(this)) {
@@ -540,6 +560,12 @@ class PlayerActivityVLC : ComponentActivity() {
             
             android.util.Log.d("PlayerActivityVLC", "Playing: ${ch.name}, URL: ${ch.url}")
             currentChannelName.value = ch.name
+            // Send online presence when initializing playback (cover starting from Home/MainActivity)
+            try {
+                presenceManager.sendOnlinePresence(ch.name, ch.url)
+            } catch (_: Exception) {
+                // ignore presence failures
+            }
             
             val options = arrayListOf(
                 "--aout=opensles",
@@ -569,6 +595,8 @@ class PlayerActivityVLC : ComponentActivity() {
                         MediaPlayer.Event.Playing -> {
                             android.util.Log.d("PlayerActivityVLC", "Event: Playing")
                             bufferingPercent.value = 100f
+                            // Start heartbeat when playback is playing
+                            presenceManager.startHeartbeat()
                         }
                         MediaPlayer.Event.Paused -> {
                             android.util.Log.d("PlayerActivityVLC", "Event: Paused")
@@ -588,10 +616,14 @@ class PlayerActivityVLC : ComponentActivity() {
                         MediaPlayer.Event.Stopped -> {
                             android.util.Log.d("PlayerActivityVLC", "Event: Stopped")
                             isBuffering.value = false
+                            // Stop heartbeat when playback stops
+                            presenceManager.stopHeartbeat()
                         }
                         MediaPlayer.Event.EndReached -> {
                             android.util.Log.d("PlayerActivityVLC", "Event: EndReached")
                             isBuffering.value = false
+                            // Stop heartbeat when playback ends
+                            presenceManager.stopHeartbeat()
                         }
                         MediaPlayer.Event.Vout -> {
                             android.util.Log.d("PlayerActivityVLC", "Event: Vout count=${event.voutCount}")
@@ -613,6 +645,8 @@ class PlayerActivityVLC : ComponentActivity() {
                         MediaPlayer.Event.EncounteredError -> {
                             android.util.Log.e("PlayerActivityVLC", "Event: Error")
                             isBuffering.value = false
+                            // Stop heartbeat on error
+                            presenceManager.stopHeartbeat()
                             runOnUiThread {
                                 android.widget.Toast.makeText(
                                     this@PlayerActivityVLC,
@@ -732,6 +766,9 @@ class PlayerActivityVLC : ComponentActivity() {
         }
         isChangingChannel = true
         
+        // Send online presence for this channel
+        presenceManager.sendOnlinePresence(ch.name, ch.url)
+        
         // Set buffering state dan reset video ready
         isBuffering.value = true
         bufferingPercent.value = 0f
@@ -780,6 +817,9 @@ class PlayerActivityVLC : ComponentActivity() {
             return
         }
         isChangingChannel = true
+        
+        // Send online presence for this channel
+        presenceManager.sendOnlinePresence(ch.name, ch.url)
         
         // Set buffering state dan reset video ready
         isBuffering.value = true

@@ -23,15 +23,52 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
+import com.sihiver.mqltv.service.PresenceManager
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
 import kotlinx.coroutines.launch
 
 class PlayerActivityNative : ComponentActivity() {
 
     private var videoView: VideoView? = null
+    private var fallbackStarted = false
+    private lateinit var presenceManager: PresenceManager
+
+    private fun startFallbackPlayer(channelId: Int) {
+        if (fallbackStarted) return
+        fallbackStarted = true
+        
+        // Send offline before switching players
+        presenceManager.sendOfflinePresence()
+
+        Toast.makeText(
+            this,
+            "Native decoder gagal, beralih ke ExoPlayer",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        startActivity(
+            Intent(this, PlayerActivityExo::class.java).apply {
+                putExtra("CHANNEL_ID", channelId)
+            }
+        )
+        finish()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize presence manager
+        presenceManager = PresenceManager(this)
+
+        if (isLikelyEmulator()) {
+            Toast.makeText(
+                this,
+                "Native player tidak didukung di emulator ini",
+                Toast.LENGTH_SHORT
+            ).show()
+            finish()
+            return
+        }
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -64,6 +101,18 @@ class PlayerActivityNative : ComponentActivity() {
             return
         }
 
+        val streamUrl = channel.url.trim()
+        if (streamUrl.isBlank()) {
+            Toast.makeText(this, "URL stream kosong", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+        
+        // Send online presence
+        presenceManager.sendOnlinePresence(channel.name, channel.url)
+        // Start heartbeat for native player
+        presenceManager.startHeartbeat()
+
         // Extra safety: probe expiry in background (same behavior as other players)
         lifecycleScope.launch {
             try {
@@ -82,6 +131,8 @@ class PlayerActivityNative : ComponentActivity() {
                 val isBuffering = remember { mutableStateOf(true) }
 
                 BackHandler {
+                    // Send offline presence before closing
+                    presenceManager.sendOfflinePresence()
                     finish()
                 }
 
@@ -96,19 +147,32 @@ class PlayerActivityNative : ComponentActivity() {
                         factory = { context ->
                             VideoView(context).also { vv ->
                                 videoView = vv
-                                vv.setVideoURI(Uri.parse(channel.url))
+                                vv.post {
+                                    runCatching {
+                                        vv.setVideoURI(Uri.parse(streamUrl))
+                                    }.onFailure {
+                                        isBuffering.value = false
+                                        Toast.makeText(
+                                            this@PlayerActivityNative,
+                                            "Native player error",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
                                 vv.setOnPreparedListener { mp ->
                                     isBuffering.value = false
                                     mp.isLooping = false
-                                    vv.start()
+                                    if (!vv.isPlaying) {
+                                        vv.start()
+                                    }
                                 }
                                 vv.setOnErrorListener { _, _, _ ->
                                     isBuffering.value = false
-                                    Toast.makeText(
-                                        this@PlayerActivityNative,
-                                        "Native player error",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    android.util.Log.w(
+                                        "PlayerActivityNative",
+                                        "Native player error, falling back to ExoPlayer"
+                                    )
+                                    startFallbackPlayer(channelId)
                                     true
                                 }
                                 vv.setOnInfoListener { _, what, _ ->
@@ -134,6 +198,8 @@ class PlayerActivityNative : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Send offline presence when activity stops
+        presenceManager.sendOfflinePresence()
         runCatching {
             videoView?.stopPlayback()
         }

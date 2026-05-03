@@ -45,6 +45,7 @@ import androidx.media3.ui.PlayerView
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
+import com.sihiver.mqltv.service.PresenceManager
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
@@ -78,6 +79,8 @@ class PlayerActivityExo : ComponentActivity() {
     private var idleCloseTimeoutMs: Long = 0L
     private var lastUserInteractionAtMs: Long = 0L
     private var idleCloseRunnable: Runnable? = null
+
+    private lateinit var presenceManager: PresenceManager
 
     private fun startExpiryWatcher() {
         expiryWatcherJob?.cancel()
@@ -257,6 +260,16 @@ class PlayerActivityExo : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (isLikelyEmulator()) {
+            android.widget.Toast.makeText(
+                this,
+                "ExoPlayer tidak didukung di emulator ini",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            finish()
+            return
+        }
         
         android.util.Log.d("PlayerActivityExo", "onCreate - using ExoPlayer with FFmpeg extension")
         
@@ -300,6 +313,9 @@ class PlayerActivityExo : ComponentActivity() {
 
         // Disable window animations for faster transitions
         window.setWindowAnimations(0)
+
+        // Initialize presence manager for tracking user online/offline status
+        presenceManager = PresenceManager(this)
 
         // Handle back button
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -594,12 +610,16 @@ class PlayerActivityExo : ComponentActivity() {
                             when (playbackState) {
                                 Player.STATE_READY -> {
                                     android.util.Log.d("PlayerActivityExo", "Player ready")
+                                    // Start heartbeat when playback is ready
+                                    presenceManager.startHeartbeat()
                                 }
                                 Player.STATE_BUFFERING -> {
                                     android.util.Log.d("PlayerActivityExo", "Buffering...")
                                 }
                                 Player.STATE_ENDED -> {
                                     android.util.Log.d("PlayerActivityExo", "Playback ended")
+                                    // Stop heartbeat when playback ends
+                                    presenceManager.stopHeartbeat()
                                 }
                             }
                         }
@@ -724,6 +744,12 @@ class PlayerActivityExo : ComponentActivity() {
             
             // Create media item and start playback
             val mediaItem = createMediaItem(channel)
+            // Send online presence when starting playback from intent or initial load
+            try {
+                presenceManager.sendOnlinePresence(channel.name, channel.url)
+            } catch (_: Exception) {
+                // ignore presence failures
+            }
             exoPlayer?.setMediaItem(mediaItem)
             exoPlayer?.prepare()
             
@@ -776,6 +802,10 @@ class PlayerActivityExo : ComponentActivity() {
         isClosingPlayer = true
 
         android.util.Log.d("PlayerActivityExo", "Closing player & finishing (reason=$reason)")
+        
+        // Send offline presence
+        presenceManager.sendOfflinePresence()
+        
         try {
             stopIdleCloseWatcher()
             stopExpiryWatcher()
@@ -820,6 +850,9 @@ class PlayerActivityExo : ComponentActivity() {
                 ).show()
                 return
             }
+            
+            // Send online presence for this channel
+            presenceManager.sendOnlinePresence(channel.name, channel.url)
             
             // Stop current playback first
             exoPlayer?.stop()
