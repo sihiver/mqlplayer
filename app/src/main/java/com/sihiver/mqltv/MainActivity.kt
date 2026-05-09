@@ -470,7 +470,7 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxHeight()
                                 .width(sidebarWidth)
                                 .zIndex(1f)
-                                .background(Color(0xFF1A1A1A))
+                                .background(Color(0xCC0E2D66))
                                 .padding(vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
@@ -528,9 +528,9 @@ class MainActivity : ComponentActivity() {
                                         .focusable(),
                                     colors = Material3CardDefaults.cardColors(
                                         containerColor = when {
-                                            focused -> Color(0xFF2A2A2A)
-                                            selected -> Color(0xFF222222)
-                                            else -> Color(0xFF1A1A1A)
+                                            focused -> Color(0xCC2A62B8)
+                                            selected -> Color(0xB31F4E95)
+                                            else -> Color(0x9920437E)
                                         }
                                     ),
                                     border = if (focused) BorderStroke(2.dp, Color(0xFFE50914)) else null,
@@ -547,7 +547,7 @@ class MainActivity : ComponentActivity() {
                                         if (sidebarExpanded) {
                                             Material3Text(
                                                 text = label,
-                                                color = if (selected || focused) Color.White else Color.Gray,
+                                                color = if (selected || focused) Color.White else Color(0xFFD6E3FF),
                                                 fontSize = 14.sp,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
