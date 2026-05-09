@@ -21,6 +21,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +45,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -62,7 +66,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,6 +85,9 @@ import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private const val PREFS_VIDEO_SETTINGS = "video_settings"
 private const val KEY_FORCE_TV_MODE = "force_tv_mode"
@@ -270,7 +280,7 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color(0xFF000000))
+                            .background(Color(0xFF0A2A63))
                     ) {
                         when (selectedTab) {
                             0 -> LiveChannelsScreen(
@@ -369,7 +379,7 @@ class MainActivity : ComponentActivity() {
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color(0xFF000000))
+                            .background(Color(0xFF0A2A63))
                     ) {
                         Column(
                             modifier = Modifier
@@ -683,7 +693,7 @@ fun CenterMessage(message: String) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000)),
+            .background(Color(0xFF0A2A63)),
         contentAlignment = Alignment.Center
     ) {
         Material3Text(
@@ -713,7 +723,7 @@ fun ProfileScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000))
+            .background(Color(0xFF0A2A63))
             .padding(screenPadding),
         contentAlignment = Alignment.Center,
     ) {
@@ -867,7 +877,7 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000))
+            .background(Color(0xFF0A2A63))
             .statusBarsPadding()
             .padding(24.dp)
             .verticalScroll(rememberScrollState()),
@@ -1369,8 +1379,6 @@ fun LiveChannelsScreen(
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
     val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
     var refreshKey by remember { mutableStateOf(0) }
-    var showAllCategory by remember { mutableStateOf<String?>(null) }
-    var showAllRecent by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var showSearchResults by remember { mutableStateOf(false) }
@@ -1379,6 +1387,7 @@ fun LiveChannelsScreen(
     val isTv = LocalIsTvMode.current
     val initialFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf("ALL_CHANNELS") }
 
     // Manual refresh state (refresh button next to search)
     var isRefreshing by remember { mutableStateOf(false) }
@@ -1413,41 +1422,31 @@ fun LiveChannelsScreen(
         channels = ChannelRepository.getAllChannels()
     }
     
-    val categories = remember(channels) {
-        val base = ChannelRepository.getAllCategories()
+    val categoryTabs = remember(channels) {
+        val all = ChannelRepository.getAllCategories()
             .filterNot { it.contains("movie", ignoreCase = true) }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
 
-        val eventCategory = base.firstOrNull { it.trim().equals("event", ignoreCase = true) }
-        if (eventCategory == null) base else listOf(eventCategory) + base.filterNot { it == eventCategory }
-    }
-    
-    val favorites = remember(refreshKey) {
-        ChannelRepository.getFavorites()
-    }
-    
-    val recentlyWatched = remember(refreshKey) {
-        ChannelRepository.getRecentlyWatched()
+        listOf("ALL_CHANNELS") + all
     }
 
-    val featuredChannel = remember(channels, favorites, recentlyWatched) {
-        // Prefer Event category, then recently watched, then favorites, then first available.
-        channels.firstOrNull { it.category.trim().equals("event", ignoreCase = true) }
-            ?: recentlyWatched.firstOrNull()
-            ?: favorites.firstOrNull()
-            ?: channels.firstOrNull()
+    val currentTime by produceState(
+        initialValue = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+    ) {
+        while (true) {
+            value = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
+            kotlinx.coroutines.delay(30_000)
+        }
     }
 
-    val featuredPlayFocusRequester = remember { FocusRequester() }
-    
-    // Show full list when "See all" is clicked
-    if (showAllRecent) {
-        FullChannelListScreen(
-            title = "Recently Watched",
-            channels = recentlyWatched,
-            onChannelClick = onChannelClick,
-            onBack = { showAllRecent = false }
-        )
-        return
+    val filteredChannels = remember(channels, selectedCategory) {
+        if (selectedCategory == "ALL_CHANNELS") {
+            channels
+        } else {
+            channels.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
+        }
     }
 
     if (showSearchResults) {
@@ -1460,21 +1459,6 @@ fun LiveChannelsScreen(
         return
     }
     
-    showAllCategory?.let { category ->
-        val categoryChannels = if (category == "Favorites") {
-            ChannelRepository.getFavorites()
-        } else {
-            ChannelRepository.getChannelsByCategory(category)
-        }
-        FullChannelListScreen(
-            title = if (category.trim().equals("event", ignoreCase = true)) "EVENTS" else category,
-            channels = categoryChannels,
-            onChannelClick = onChannelClick,
-            onBack = { showAllCategory = null }
-        )
-        return
-    }
-
     if (showSearchDialog) {
         AlertDialog(
             onDismissRequest = { showSearchDialog = false },
@@ -1534,482 +1518,353 @@ fun LiveChannelsScreen(
         )
     }
     
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000))
+            .background(Color(0xFF0A2A63))
             .statusBarsPadding()
     ) {
-        // Header
-        item {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Material3Text(
+                text = "Semua Saluran",
+                fontSize = if (isTv) 32.sp else 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Material3Text(
-                    text = "MQL TV",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // TV-focusable Search action
-                    Box(
-                        modifier = Modifier
-                            .size(if (isTv) 48.dp else 40.dp)
-                            .clip(CircleShape)
-                            .background(if (isSearchFocused) Color(0x33FFFFFF) else Color.Transparent)
-                            .focusRequester(searchActionFocusRequester)
-                            .onFocusChanged { isSearchFocused = it.isFocused }
-                            .focusable()
-                            .focusProperties {
-                                right = refreshActionFocusRequester
-                            }
-                            .onKeyEvent { event ->
-                                if (!isTv) return@onKeyEvent false
-                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
-                                when (event.key) {
-                                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                        showSearchDialog = true; true
-                                    }
-                                    else -> false
+                Box(
+                    modifier = Modifier
+                        .size(if (isTv) 44.dp else 36.dp)
+                        .clip(CircleShape)
+                        .background(if (isSearchFocused) Color(0x33FFFFFF) else Color.Transparent)
+                        .focusRequester(searchActionFocusRequester)
+                        .onFocusChanged { isSearchFocused = it.isFocused }
+                        .focusable()
+                        .focusProperties { right = refreshActionFocusRequester }
+                        .onKeyEvent { event ->
+                            if (!isTv || event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                            when (event.key) {
+                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                    showSearchDialog = true
+                                    true
                                 }
+                                else -> false
                             }
-                            .clickable { showSearchDialog = true },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = Color.White,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-
-                    // TV-focusable Refresh playlist action (next to search)
-                    if (isRefreshing) {
-                        Box(
-                            modifier = Modifier
-                                .size(if (isTv) 48.dp else 40.dp)
-                                .clip(CircleShape)
-                                .background(if (isRefreshFocused) Color(0x33FFFFFF) else Color.Transparent)
-                                .focusRequester(refreshActionFocusRequester)
-                                .onFocusChanged { isRefreshFocused = it.isFocused }
-                                .focusable()
-                                .focusProperties {
-                                    left = searchActionFocusRequester
-                                    right = favoritesActionFocusRequester
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(22.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
                         }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(if (isTv) 48.dp else 40.dp)
-                                .clip(CircleShape)
-                                .background(if (isRefreshFocused) Color(0x33FFFFFF) else Color.Transparent)
-                                .focusRequester(refreshActionFocusRequester)
-                                .onFocusChanged { isRefreshFocused = it.isFocused }
-                                .focusable()
-                                .focusProperties {
-                                    left = searchActionFocusRequester
-                                    right = favoritesActionFocusRequester
-                                }
-                                .onKeyEvent { event ->
-                                    if (!isTv) return@onKeyEvent false
-                                    if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
-                                    when (event.key) {
-                                        Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                            if (isRefreshing) return@onKeyEvent true
-                                            isRefreshing = true
-                                            scope.launch {
-                                                try {
-                                                    val playlistUrls = ChannelRepository.getPlaylistUrls(context)
-                                                    playlistUrls.forEach { playlistUrl ->
-                                                        android.util.Log.d(
-                                                            "LiveChannelsScreen",
-                                                            "Manual refresh from: $playlistUrl"
-                                                        )
-                                                        ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
-                                                    }
-                                                    refreshKey++
-                                                } catch (e: Exception) {
-                                                    android.util.Log.e("LiveChannelsScreen", "Manual refresh failed", e)
-                                                } finally {
-                                                    isRefreshing = false
-                                                }
-                                            }
-                                            true
-                                        }
-                                        else -> false
-                                    }
-                                }
-                                .clickable {
-                                    if (isRefreshing) return@clickable
+                        .clickable { showSearchDialog = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(if (isTv) 44.dp else 36.dp)
+                        .clip(CircleShape)
+                        .background(if (isRefreshFocused) Color(0x33FFFFFF) else Color.Transparent)
+                        .focusRequester(refreshActionFocusRequester)
+                        .onFocusChanged { isRefreshFocused = it.isFocused }
+                        .focusable()
+                        .focusProperties {
+                            left = searchActionFocusRequester
+                            right = favoritesActionFocusRequester
+                        }
+                        .onKeyEvent { event ->
+                            if (!isTv || event.type != KeyEventType.KeyUp) return@onKeyEvent false
+                            when (event.key) {
+                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                    if (isRefreshing) return@onKeyEvent true
                                     isRefreshing = true
                                     scope.launch {
                                         try {
-                                            val playlistUrls = ChannelRepository.getPlaylistUrls(context)
-                                            playlistUrls.forEach { playlistUrl ->
-                                                android.util.Log.d(
-                                                    "LiveChannelsScreen",
-                                                    "Manual refresh from: $playlistUrl"
-                                                )
+                                            ChannelRepository.getPlaylistUrls(context).forEach { playlistUrl ->
                                                 ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
                                             }
                                             refreshKey++
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("LiveChannelsScreen", "Manual refresh failed", e)
                                         } finally {
                                             isRefreshing = false
                                         }
                                     }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh Playlist",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    }
-
-                    // Keep Favorites focusable too so DPAD traversal feels natural.
-                    Box(
-                        modifier = Modifier
-                            .size(if (isTv) 48.dp else 40.dp)
-                            .clip(CircleShape)
-                            .background(if (isFavoritesFocused) Color(0x33FFFFFF) else Color.Transparent)
-                            .focusRequester(favoritesActionFocusRequester)
-                            .onFocusChanged { isFavoritesFocused = it.isFocused }
-                            .focusable()
-                            .focusProperties {
-                                left = refreshActionFocusRequester
-                            }
-                            .onKeyEvent { event ->
-                                if (!isTv) return@onKeyEvent false
-                                if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
-                                when (event.key) {
-                                    else -> false
+                                    true
                                 }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Favorite,
-                            contentDescription = "Favorites",
-                            tint = Color(0xFFE50914),
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        // TV Hero / Featured section
-        item {
-            if (isTv && featuredChannel != null) {
-                Material3Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                        .height(260.dp),
-                    colors = Material3CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E)),
-                    shape = RoundedCornerShape(20.dp)
+                                else -> false
+                            }
+                        }
+                        .clickable {
+                            if (isRefreshing) return@clickable
+                            isRefreshing = true
+                            scope.launch {
+                                try {
+                                    ChannelRepository.getPlaylistUrls(context).forEach { playlistUrl ->
+                                        ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
+                                    }
+                                    refreshKey++
+                                } finally {
+                                    isRefreshing = false
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // Background image (logo) if present
-                        if (featuredChannel.logo.isNotBlank()) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(featuredChannel.logo)
-                                    .crossfade(true)
-                                    .allowHardware(false)
-                                    .build(),
-                                contentDescription = featuredChannel.name,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        }
-
-                        // Dark overlay for readability
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = if (featuredChannel.logo.isNotBlank()) 0.55f else 0.15f))
+                    if (isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
                         )
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Material3Text(
-                                    text = featuredChannel.category.ifBlank { "Live" },
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    fontSize = 14.sp
-                                )
-                                Material3Text(
-                                    text = featuredChannel.name,
-                                    color = Color.White,
-                                    fontSize = 34.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Material3Text(
-                                    text = "Tekan OK untuk mulai menonton",
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    fontSize = 16.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Material3Button(
-                                    onClick = { onChannelClick(featuredChannel) },
-                                    modifier = Modifier
-                                        .height(52.dp)
-                                        .focusRequester(featuredPlayFocusRequester)
-                                        .onKeyEvent { event ->
-                                            if (!isTv) return@onKeyEvent false
-                                            if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
-                                            when (event.key) {
-                                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                                    onChannelClick(featuredChannel); true
-                                                }
-                                                else -> false
-                                            }
-                                        }
-                                        .focusable(),
-                                    colors = Material3ButtonDefaults.buttonColors(
-                                        containerColor = Color.White,
-                                        contentColor = Color.Black
-                                    ),
-                                    shape = RoundedCornerShape(14.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "Play",
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Material3Text(text = "Play")
-                                }
-                            }
-                        }
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
 
-                LaunchedEffect(featuredChannel.id) {
-                    if (!initialFocusRequested) {
-                        featuredPlayFocusRequester.requestFocus()
-                        initialFocusRequested = true
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(if (isTv) 44.dp else 36.dp)
+                        .clip(CircleShape)
+                        .background(if (isFavoritesFocused) Color(0x33FFFFFF) else Color.Transparent)
+                        .focusRequester(favoritesActionFocusRequester)
+                        .onFocusChanged { isFavoritesFocused = it.isFocused }
+                        .focusable()
+                        .focusProperties { left = refreshActionFocusRequester },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = "Favorites",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
+
+                Material3Text(
+                    text = currentTime,
+                    color = Color.White,
+                    fontSize = if (isTv) 20.sp else 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
-        
-        // Favorites Section
-        item {
-            if (favorites.isNotEmpty()) {
-                Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Material3Text(
-                            text = "Favorites",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        TextButton(onClick = { showAllCategory = "Favorites" }) {
-                            Material3Text(
-                                text = "See all",
-                                fontSize = 14.sp,
-                                color = Color(0xFF2196F3)
-                            )
-                        }
-                    }
-                    
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        itemsIndexed(favorites) { index, channel ->
-                            ChannelCardCompact(
-                                channel = channel,
-                                onClick = onChannelClick,
-                                modifier = if (isTv && !initialFocusRequested && index == 0) {
-                                    Modifier.focusRequester(initialFocusRequester)
-                                } else {
-                                    Modifier
-                                },
-                                onFavoriteClick = { 
-                                    ChannelRepository.toggleFavorite(context, channel.id)
-                                    refreshKey++
-                                },
-                                isFavorite = true
-                            )
-                        }
-                    }
 
-                    LaunchedEffect(isTv, favorites.size) {
-                        if (isTv && !initialFocusRequested && favorites.isNotEmpty()) {
-                            initialFocusRequester.requestFocus()
-                            initialFocusRequested = true
-                        }
-                    }
-                }
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(categoryTabs) { category ->
+                LiveCategoryChip(
+                    text = formatLiveCategoryTabLabel(category),
+                    selected = selectedCategory == category,
+                    onClick = { selectedCategory = category }
+                )
             }
         }
-        
-        // Recently Watched Section
-        item {
-            if (recentlyWatched.isNotEmpty()) {
-                Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Material3Text(
-                            text = "Recently Watched",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        TextButton(onClick = { showAllRecent = true }) {
-                            Material3Text(
-                                text = "See all",
-                                fontSize = 14.sp,
-                                color = Color(0xFF2196F3)
-                            )
-                        }
-                    }
-                    
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        itemsIndexed(recentlyWatched) { index, channel ->
-                            ChannelCardCompact(
-                                channel = channel,
-                                onClick = onChannelClick,
-                                modifier = if (isTv && !initialFocusRequested && favorites.isEmpty() && index == 0) {
-                                    Modifier.focusRequester(initialFocusRequester)
-                                } else {
-                                    Modifier
-                                },
-                                onFavoriteClick = { 
-                                    ChannelRepository.toggleFavorite(context, channel.id)
-                                    refreshKey++
-                                },
-                                isFavorite = ChannelRepository.isFavorite(channel.id)
-                            )
-                        }
-                    }
 
-                    LaunchedEffect(isTv, favorites.size, recentlyWatched.size) {
-                        if (isTv && !initialFocusRequested && favorites.isEmpty() && recentlyWatched.isNotEmpty()) {
-                            initialFocusRequester.requestFocus()
-                            initialFocusRequested = true
-                        }
-                    }
-                }
+        LazyVerticalGrid(
+            columns = if (isTv) GridCells.Fixed(6) else GridCells.Fixed(3),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(bottom = 20.dp)
+        ) {
+            gridItemsIndexed(filteredChannels) { index, channel ->
+                LiveChannelGridCard(
+                    channel = channel,
+                    channelNumber = index + 1,
+                    modifier = if (isTv && index == 0 && !initialFocusRequested) {
+                        Modifier.focusRequester(initialFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                    onClick = onChannelClick
+                )
             }
         }
-        
-        // Category Sections
-        items(categories) { category ->
-            val categoryChannels = ChannelRepository.getChannelsByCategory(category)
-            
-            if (categoryChannels.isNotEmpty()) {
-                Column(modifier = Modifier.padding(vertical = 16.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Material3Text(
-                            text = if (category.trim().equals("event", ignoreCase = true)) "EVENTS" else category,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        TextButton(onClick = { showAllCategory = category }) {
-                            Material3Text(
-                                text = "See all",
-                                fontSize = 14.sp,
-                                color = Color(0xFF2196F3)
-                            )
-                        }
-                    }
-                    
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        itemsIndexed(categoryChannels) { index, channel ->
-                            ChannelCardCompact(
-                                channel = channel,
-                                onClick = onChannelClick,
-                                modifier = if (isTv && !initialFocusRequested && favorites.isEmpty() && recentlyWatched.isEmpty() && index == 0) {
-                                    Modifier.focusRequester(initialFocusRequester)
-                                } else {
-                                    Modifier
-                                },
-                                onFavoriteClick = { 
-                                    ChannelRepository.toggleFavorite(context, channel.id)
-                                    refreshKey++
-                                },
-                                isFavorite = ChannelRepository.isFavorite(channel.id)
-                            )
-                        }
-                    }
+    }
 
-                    LaunchedEffect(isTv, favorites.size, recentlyWatched.size, categoryChannels.size) {
-                        if (
-                            isTv &&
-                            !initialFocusRequested &&
-                            favorites.isEmpty() &&
-                            recentlyWatched.isEmpty() &&
-                            categoryChannels.isNotEmpty()
-                        ) {
-                            initialFocusRequester.requestFocus()
-                            initialFocusRequested = true
-                        }
-                    }
+    LaunchedEffect(isTv, filteredChannels.size) {
+        if (isTv && filteredChannels.isNotEmpty() && !initialFocusRequested) {
+            initialFocusRequester.requestFocus()
+            initialFocusRequested = true
+        }
+    }
+}
+
+@Composable
+private fun LiveCategoryChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val chipBg = if (selected) Color(0xFFFF7F3A) else Color(0xFF17336A)
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .height(40.dp)
+            .defaultMinSize(minWidth = 110.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = chipBg,
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Material3Text(
+                text = text,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                style = TextStyle(
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 13.sp,
+                    platformStyle = PlatformTextStyle(
+                        includeFontPadding = false,
+                    ),
+                    lineHeightStyle = LineHeightStyle(
+                        alignment = LineHeightStyle.Alignment.Center,
+                        trim = LineHeightStyle.Trim.Both,
+                    ),
+                ),
+            )
+        }
+    }
+}
+
+private fun formatLiveCategoryTabLabel(rawCategory: String): String {
+    if (rawCategory == "ALL_CHANNELS") return "All Channels"
+
+    val normalized = rawCategory
+        .trim()
+        .replace("_", " ")
+        .replace("-", " ")
+        .replace(Regex("\\s+"), " ")
+
+    val lower = normalized.lowercase(Locale.getDefault())
+    return when (lower) {
+        "kids" -> "Kids"
+        "knowledge" -> "Knowledge"
+        "local" -> "Local"
+        "religious" -> "Religious"
+        "news" -> "News"
+        "sports" -> "Sports"
+        "entertainment" -> "Entertainment"
+        "event" -> "Event"
+        else -> normalized.split(" ")
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { word ->
+                word.replaceFirstChar { ch ->
+                    if (ch.isLowerCase()) ch.titlecase(Locale.getDefault()) else ch.toString()
                 }
             }
+    }
+}
+
+@Composable
+private fun LiveChannelGridCard(
+    channel: Channel,
+    channelNumber: Int,
+    onClick: (Channel) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val isTv = LocalIsTvMode.current
+    val context = LocalContext.current
+
+    Material3Card(
+        onClick = { onClick(channel) },
+        modifier = modifier
+            .fillMaxWidth()
+            .height(if (isTv) 178.dp else 150.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.Enter, Key.DirectionCenter, Key.NumPadEnter -> {
+                        onClick(channel)
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable(),
+        shape = RoundedCornerShape(16.dp),
+        colors = Material3CardDefaults.cardColors(containerColor = Color(0xFF11306A)),
+        border = BorderStroke(
+            width = if (isFocused) 3.dp else 1.dp,
+            color = if (isFocused) Color(0xFFFF7F3A) else Color(0xFF1B3F7B)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                if (channel.logo.isNotBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(channel.logo)
+                            .crossfade(true)
+                            .allowHardware(!isTv)
+                            .build(),
+                        contentDescription = channel.name,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Material3Text(
+                        text = channel.name.take(5).uppercase(),
+                        color = Color(0xFF123067),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Material3Text(
+                text = "%03d".format(channelNumber),
+                color = Color.White,
+                fontSize = if (isTv) 26.sp else 20.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(top = 8.dp)
+            )
         }
     }
 }
@@ -2047,7 +1902,7 @@ fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000))
+            .background(Color(0xFF0A2A63))
             .statusBarsPadding()
     ) {
         item {
@@ -2124,7 +1979,7 @@ fun FullChannelListScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000))
+            .background(Color(0xFF0A2A63))
             .statusBarsPadding()
     ) {
         // Header
