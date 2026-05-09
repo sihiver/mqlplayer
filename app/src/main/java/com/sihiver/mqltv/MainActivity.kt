@@ -64,6 +64,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -99,6 +100,13 @@ private const val PREFS_VIDEO_SETTINGS = "video_settings"
 private const val KEY_FORCE_TV_MODE = "force_tv_mode"
 
 val LocalIsTvMode = staticCompositionLocalOf { false }
+private val AppGlobalBackgroundBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF0A2A63),
+        Color(0xFF081F4B),
+        Color(0xFF061736),
+    )
+)
 
 @androidx.media3.common.util.UnstableApi
 class MainActivity : ComponentActivity() {
@@ -724,15 +732,19 @@ fun ProfileScreen(
 ) {
     val context = LocalContext.current
     val isTvMode = LocalIsTvMode.current
+    val profileAccent = Color(0xFFFF7F3A)
+    val profileMuted = Color(0xFFD6E3FF)
+    val profileGlass = Color(0x9920437E)
+    val profileButtonGlass = Color(0xCC2A62B8)
 
     val username = AuthRepository.getUsername(context)
     val expiresAtRaw = AuthRepository.getExpiresAtRaw(context)
     val serverBaseUrl = AuthRepository.getServerBaseUrl(context)
     val appKey = AuthRepository.getAppKey(context)
 
-    val screenPadding = if (isTvMode) 48.dp else 24.dp
-    val cardPadding = if (isTvMode) 28.dp else 20.dp
-    val titleSize = if (isTvMode) 26.sp else 20.sp
+    val screenPadding = if (isTvMode) 40.dp else 20.dp
+    val cardPadding = if (isTvMode) 28.dp else 18.dp
+    val titleSize = if (isTvMode) 30.sp else 24.sp
 
     Box(
         modifier = Modifier
@@ -746,39 +758,47 @@ fun ProfileScreen(
                 .fillMaxWidth()
                 .widthIn(max = if (isTvMode) 640.dp else 520.dp),
             colors = Material3CardDefaults.cardColors(
-                containerColor = Color(0xFF1A1A1A),
+                containerColor = profileGlass,
             ),
             shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0x662A4A86)),
+            elevation = Material3CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(cardPadding)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Material3Text(
-                    text = "Profile",
+                    text = "Profil",
                     fontSize = titleSize,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     color = Color.White,
+                )
+                Material3Text(
+                    text = "Informasi akun aktif",
+                    fontSize = if (isTvMode) 15.sp else 13.sp,
+                    color = profileMuted,
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
 
                 Material3Text(
                     text = "Username: ${if (username.isBlank()) "-" else username}",
                     color = Color.White,
-                    fontSize = if (isTvMode) 16.sp else 14.sp,
+                    fontSize = if (isTvMode) 17.sp else 14.sp,
                 )
 
                 Material3Text(
-                    text = "Expires: ${if (expiresAtRaw.isBlank()) "-" else expiresAtRaw}",
-                    color = Color.White,
+                    text = "Masa aktif: ${if (expiresAtRaw.isBlank()) "-" else expiresAtRaw}",
+                    color = profileMuted,
                     fontSize = if (isTvMode) 16.sp else 14.sp,
                 )
 
                 Material3Text(
                     text = "Server: ${if (serverBaseUrl.isBlank()) "-" else serverBaseUrl}",
-                    color = Color.White,
+                    color = profileMuted,
                     fontSize = if (isTvMode) 16.sp else 14.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -786,21 +806,31 @@ fun ProfileScreen(
 
                 Material3Text(
                     text = "AppKey: ${if (appKey.isBlank()) "-" else appKey}",
-                    color = Color.White,
+                    color = profileMuted,
                     fontSize = if (isTvMode) 16.sp else 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Material3Button(
                     onClick = onLogout,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(if (isTvMode) 56.dp else 48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = Material3ButtonDefaults.buttonColors(
+                        containerColor = profileButtonGlass,
+                        contentColor = Color.White,
+                    ),
+                    border = BorderStroke(1.dp, profileAccent),
                 ) {
-                    Material3Text("Logout")
+                    Material3Text(
+                        text = "Keluar",
+                        fontSize = if (isTvMode) 16.sp else 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         }
