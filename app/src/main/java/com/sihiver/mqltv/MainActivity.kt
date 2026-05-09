@@ -1992,7 +1992,6 @@ private fun LiveChannelGridCard(
         onClick = { onClick(channel) },
         modifier = modifier
             .fillMaxWidth()
-            .height(if (isTv) 178.dp else 150.dp)
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) {
@@ -2024,25 +2023,25 @@ private fun LiveChannelGridCard(
                 }
             }
             .focusable(),
-        shape = RoundedCornerShape(16.dp),
-        colors = Material3CardDefaults.cardColors(containerColor = Color(0xFF11306A)),
+        shape = RoundedCornerShape(10.dp),
+        colors = Material3CardDefaults.cardColors(containerColor = Color(0xFFFFFFFF)),
         border = BorderStroke(
-            width = if (isFocused) 3.dp else 1.dp,
-            color = if (isFocused) Color(0xFFFF7F3A) else Color(0xFF1B3F7B)
+            width = if (isFocused) 2.5.dp else 1.dp,
+            color = if (isFocused) Color(0xFFE31A2F) else Color(0xFF2A4A86)
         )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(10.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .padding(0.dp)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White),
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp))
+                    .background(Color.White)
+                    .padding(10.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (channel.logo.isNotBlank()) {
@@ -2055,7 +2054,7 @@ private fun LiveChannelGridCard(
                         contentDescription = channel.name,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(12.dp),
+                            .padding(4.dp),
                         contentScale = ContentScale.Fit
                     )
                 } else {
@@ -2067,15 +2066,23 @@ private fun LiveChannelGridCard(
                 }
             }
 
-            Material3Text(
-                text = "%03d".format(channelNumber),
-                color = Color.White,
-                fontSize = if (isTv) 26.sp else 20.sp,
-                fontWeight = FontWeight.Bold,
+            Box(
                 modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 8.dp)
-            )
+                    .fillMaxWidth()
+                    .height(if (isTv) 44.dp else 40.dp)
+                    .background(if (isFocused) Color(0xFFE31A2F) else Color(0xBF50535A))
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Material3Text(
+                    text = channel.name.ifBlank { "Channel $channelNumber" },
+                    color = Color.White,
+                    fontSize = if (isTv) 14.sp else 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
