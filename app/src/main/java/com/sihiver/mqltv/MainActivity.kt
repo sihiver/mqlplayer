@@ -294,7 +294,7 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color(0xFF0A2A63))
+                            .background(AppGlobalBackgroundBrush)
                     ) {
                         when (selectedTab) {
                             0 -> LiveChannelsScreen(
@@ -397,7 +397,7 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color(0xFF0A2A63))
+                            .background(AppGlobalBackgroundBrush)
                     ) {
                         Box(
                             modifier = Modifier
@@ -715,7 +715,7 @@ fun CenterMessage(message: String) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A2A63)),
+            .background(AppGlobalBackgroundBrush),
         contentAlignment = Alignment.Center
     ) {
         Material3Text(
@@ -749,7 +749,7 @@ fun ProfileScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A2A63))
+            .background(AppGlobalBackgroundBrush)
             .padding(screenPadding),
         contentAlignment = Alignment.Center,
     ) {
@@ -929,7 +929,7 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A2A63))
+            .background(AppGlobalBackgroundBrush)
             .statusBarsPadding()
             .padding(horizontal = if (isTv) 28.dp else 20.dp, vertical = if (isTv) 20.dp else 16.dp)
             .verticalScroll(rememberScrollState()),
@@ -1625,7 +1625,7 @@ fun LiveChannelsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A2A63))
+            .background(AppGlobalBackgroundBrush)
             .statusBarsPadding()
     ) {
         Row(
@@ -2171,7 +2171,7 @@ fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A2A63))
+            .background(AppGlobalBackgroundBrush)
             .statusBarsPadding()
     ) {
         item {
@@ -2248,7 +2248,7 @@ fun FullChannelListScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A2A63))
+            .background(AppGlobalBackgroundBrush)
             .statusBarsPadding()
     ) {
         // Header
