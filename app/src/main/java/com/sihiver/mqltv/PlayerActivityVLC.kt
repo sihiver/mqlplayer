@@ -9,9 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
-import android.view.SurfaceHolder
-import android.view.SurfaceView
-import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -19,8 +16,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -33,7 +28,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +46,6 @@ import kotlinx.coroutines.launch
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
-import org.videolan.libvlc.interfaces.IVLCVout
 import org.videolan.libvlc.util.VLCVideoLayout
 
 class PlayerActivityVLC : ComponentActivity() {
@@ -687,45 +680,7 @@ class PlayerActivityVLC : ComponentActivity() {
             android.widget.Toast.makeText(this, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
-    
-    // Enable audio setelah video ready - reload media tanpa :no-audio
-    private fun enableAudioAfterVideoReady() {
-        try {
-            val ch = ChannelRepository.getChannelById(channelId) ?: return
 
-            val settings = readVideoSettings()
-            
-            // Get current position
-            val currentPos = vlcPlayer?.time ?: 0L
-            
-            android.util.Log.d("PlayerActivityVLC", "Enabling audio at position $currentPos")
-            
-            // Create new media WITH audio
-            val media = Media(libVLC, Uri.parse(ch.url)).apply {
-                applyHwDecoderToMedia(this, settings.acceleration)
-                addOption(":network-caching=300")
-                addOption(":live-caching=300")
-                // NO :no-audio option - audio akan aktif
-            }
-            
-            vlcPlayer?.media = media
-            media.release()
-            
-            // Set volume penuh
-            vlcPlayer?.volume = 100
-
-            applyAspectRatioSetting(vlcPlayer, settings.aspectRatio)
-            
-            // Play dari posisi yang sama (untuk live stream akan start dari current)
-            vlcPlayer?.play()
-            
-            android.util.Log.d("PlayerActivityVLC", "Audio enabled, playing with full volume")
-            
-        } catch (e: Exception) {
-            android.util.Log.e("PlayerActivityVLC", "Error enabling audio", e)
-        }
-    }
-    
     private fun releasePlayer() {
         if (isReleasingPlayer) return
         isReleasingPlayer = true

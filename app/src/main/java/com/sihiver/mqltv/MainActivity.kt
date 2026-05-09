@@ -21,16 +21,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.PlayArrow
@@ -64,7 +59,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -1373,6 +1367,7 @@ fun LiveChannelsScreen(
 ) {
     val context = LocalContext.current
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
+    val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
     var refreshKey by remember { mutableStateOf(0) }
     var showAllCategory by remember { mutableStateOf<String?>(null) }
     var showAllRecent by remember { mutableStateOf(false) }
@@ -1381,7 +1376,6 @@ fun LiveChannelsScreen(
     var showSearchResults by remember { mutableStateOf(false) }
     var searchResults by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var searchResultsTitle by remember { mutableStateOf("Search") }
-    val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
     val isTv = LocalIsTvMode.current
     val initialFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
@@ -2025,10 +2019,11 @@ fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
     val context = LocalContext.current
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
     var refreshKey by remember { mutableStateOf(0) }
+    val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
     var showAll by remember { mutableStateOf(false) }
 
     // Refresh channels
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(refreshKey, channelsRevision) {
         ChannelRepository.loadChannels(context)
         ChannelRepository.loadRecentlyWatched(context)
         ChannelRepository.loadFavorites(context)

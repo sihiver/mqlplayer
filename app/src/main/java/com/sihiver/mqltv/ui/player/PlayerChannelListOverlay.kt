@@ -38,6 +38,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -239,11 +241,15 @@ fun PlayerChannelListOverlay(
     currentChannelId: Int,
     onPlayChannel: (Channel) -> Unit,
 ) {
-    val allChannels: List<Channel> = remember { ChannelRepository.getAllChannels() }
-    val favoriteChannels: List<Channel> = remember { ChannelRepository.getFavorites() }
-    val categoryKeys: List<String> = remember { buildCategoryKeys(allChannels) }
+    // Observe repository revision so composable recomposes when channels change.
+    val channelsRevision by ChannelRepository.channelsRevision.collectAsState()
 
-    val filteredChannels: List<Channel> = remember(nav.selectedCategory.value) {
+    // Read current channel lists (recomputed when channelsRevision changes due to collectAsState above).
+    val allChannels: List<Channel> = ChannelRepository.getAllChannels()
+    val favoriteChannels: List<Channel> = ChannelRepository.getFavorites()
+    val categoryKeys: List<String> = buildCategoryKeys(allChannels)
+
+    val filteredChannels: List<Channel> = remember(nav.selectedCategory.value, channelsRevision) {
         when (nav.selectedCategory.value) {
             "all" -> allChannels
             "favorites" -> favoriteChannels

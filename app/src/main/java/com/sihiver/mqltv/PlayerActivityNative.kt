@@ -1,7 +1,6 @@
 package com.sihiver.mqltv
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
@@ -9,6 +8,7 @@ import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,11 +21,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.util.UnstableApi
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.service.PresenceManager
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
 import kotlinx.coroutines.launch
+import androidx.core.net.toUri
 
 class PlayerActivityNative : ComponentActivity() {
 
@@ -33,6 +35,7 @@ class PlayerActivityNative : ComponentActivity() {
     private var fallbackStarted = false
     private lateinit var presenceManager: PresenceManager
 
+    @OptIn(UnstableApi::class)
     private fun startFallbackPlayer(channelId: Int) {
         if (fallbackStarted) return
         fallbackStarted = true
@@ -149,7 +152,7 @@ class PlayerActivityNative : ComponentActivity() {
                                 videoView = vv
                                 vv.post {
                                     runCatching {
-                                        vv.setVideoURI(Uri.parse(streamUrl))
+                                        vv.setVideoURI(streamUrl.toUri())
                                     }.onFailure {
                                         isBuffering.value = false
                                         Toast.makeText(

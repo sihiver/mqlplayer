@@ -65,8 +65,27 @@ object ChannelRepository {
         return true
     }
     
+    // Return all channels with deduplication by URL.
+    // Preference: customChannels (user-added/imported) override sampleChannels when URLs collide.
     fun getAllChannels(): List<Channel> {
-        return getSampleChannels() + customChannels
+        val result = mutableListOf<Channel>()
+        val seenUrls = mutableSetOf<String>()
+
+        // Add custom/user channels first (they take precedence)
+        for (ch in customChannels) {
+            if (seenUrls.add(ch.url)) {
+                result.add(ch)
+            }
+        }
+
+        // Then add sample channels only if URL not already present
+        for (ch in getSampleChannels()) {
+            if (seenUrls.add(ch.url)) {
+                result.add(ch)
+            }
+        }
+
+        return result
     }
     
     fun addChannel(channel: Channel) {
