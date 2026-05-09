@@ -78,6 +78,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.tv.material3.*
@@ -381,15 +382,92 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    Row(
+                    // Konten pakai padding kiri = rail collapsed; sidebar di-overlay saat melebar
+                    // supaya lebar grid (6 kolom) tidak ikut menyempit.
+                    val tvCollapsedSidebarWidth = 72.dp
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(Color(0xFF0A2A63))
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(start = tvCollapsedSidebarWidth)
+                        ) {
+                            when (selectedTab) {
+                                0 -> LiveChannelsScreen(
+                                    onChannelClick = { channel ->
+                                        try {
+                                            ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
+
+                                            val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
+                                            val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+
+                                            val intent = when (playerType) {
+                                                "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                                "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
+                                                else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                            }
+                                            intent.putExtra("CHANNEL_ID", channel.id)
+                                            startActivity(intent)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
+                                        }
+                                    },
+                                    headerSearchFocusRequester = headerSearchFocusRequester,
+                                    headerRefreshFocusRequester = headerRefreshFocusRequester,
+                                    headerFavoritesFocusRequester = headerFavoritesFocusRequester
+                                )
+                                1 -> MovieChannelsScreen(
+                                    onChannelClick = { channel ->
+                                        try {
+                                            ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
+
+                                            val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
+                                            val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+
+                                            val intent = when (playerType) {
+                                                "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                                "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
+                                                else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                            }
+                                            intent.putExtra("CHANNEL_ID", channel.id)
+                                            startActivity(intent)
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
+                                        }
+                                    }
+                                )
+                                3 -> ProfileScreen(
+                                    onLogout = performLogout,
+                                )
+                                4 -> SettingsScreen(
+                                    onClearPlaylist = {
+                                        ChannelRepository.clearAllChannels(this@MainActivity)
+                                        android.widget.Toast.makeText(
+                                            this@MainActivity,
+                                            "Playlist cleared",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    onLogout = {
+                                        performLogout()
+                                    },
+                                    forceTvMode = forceTvMode,
+                                    onForceTvModeChanged = { enabled ->
+                                        forceTvMode = enabled
+                                        prefs.edit().putBoolean(KEY_FORCE_TV_MODE, enabled).apply()
+                                    },
+                                )
+                            }
+                        }
                         Column(
                             modifier = Modifier
+                                .align(Alignment.CenterStart)
                                 .fillMaxHeight()
                                 .width(sidebarWidth)
+                                .zIndex(1f)
                                 .background(Color(0xFF1A1A1A))
                                 .padding(vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -419,11 +497,11 @@ class MainActivity : ComponentActivity() {
                                             // system handle navigation (and avoid FocusRequester crashes).
                                             if (event.key == Key.DirectionRight) {
                                                 if (selectedTab == 0 && event.type == KeyEventType.KeyDown) {
-                                                    val focused = runCatching {
+                                                    // Header Live bisa tidak ter-compose (mis. daftar penuh hasil cari).
+                                                    val ok = runCatching {
                                                         headerSearchFocusRequester.requestFocus()
-                                                        true
-                                                    }.getOrDefault(false)
-                                                    return@onKeyEvent focused
+                                                    }.isSuccess
+                                                    return@onKeyEvent ok
                                                 }
                                                 return@onKeyEvent false
                                             }
@@ -542,80 +620,6 @@ class MainActivity : ComponentActivity() {
                                 selected = selectedTab == 4,
                                 onClick = { selectedTab = 4 }
                             )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .weight(1f)
-                        ) {
-                            // Pass the shared header focus targets down so sidebar can route DPAD.
-                            when (selectedTab) {
-                                0 -> LiveChannelsScreen(
-                                    onChannelClick = { channel ->
-                                        try {
-                                            ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
-
-                                            val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
-                                            val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
-
-                                            val intent = when (playerType) {
-                                                "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
-                                                "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
-                                                else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
-                                            }
-                                            intent.putExtra("CHANNEL_ID", channel.id)
-                                            startActivity(intent)
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
-                                        }
-                                    },
-                                    headerSearchFocusRequester = headerSearchFocusRequester,
-                                    headerRefreshFocusRequester = headerRefreshFocusRequester,
-                                    headerFavoritesFocusRequester = headerFavoritesFocusRequester
-                                )
-                                1 -> MovieChannelsScreen(
-                                    onChannelClick = { channel ->
-                                        try {
-                                            ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
-
-                                            val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
-                                            val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
-
-                                            val intent = when (playerType) {
-                                                "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
-                                                "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
-                                                else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
-                                            }
-                                            intent.putExtra("CHANNEL_ID", channel.id)
-                                            startActivity(intent)
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
-                                        }
-                                    }
-                                )
-                                3 -> ProfileScreen(
-                                    onLogout = performLogout,
-                                )
-                                4 -> SettingsScreen(
-                                    onClearPlaylist = {
-                                        ChannelRepository.clearAllChannels(this@MainActivity)
-                                        android.widget.Toast.makeText(
-                                            this@MainActivity,
-                                            "Playlist cleared",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    },
-                                    onLogout = {
-                                        performLogout()
-                                    },
-                                    forceTvMode = forceTvMode,
-                                    onForceTvModeChanged = { enabled ->
-                                        forceTvMode = enabled
-                                        prefs.edit().putBoolean(KEY_FORCE_TV_MODE, enabled).apply()
-                                    },
-                                )
-                            }
                         }
                     }
                 } else {
@@ -1468,7 +1472,9 @@ fun LiveChannelsScreen(
     val focusSelectedCategoryTabAndScroll: () -> Unit = {
         val fr = tabFocusRequesters[selectedCategory]
             ?: categoryTabs.firstOrNull()?.let { tabFocusRequesters[it] }
-        fr?.requestFocus()
+        if (fr != null) {
+            runCatching { fr.requestFocus() }
+        }
         scope.launch {
             kotlinx.coroutines.delay(48)
             val idx = categoryTabs.indexOf(selectedCategory).coerceAtLeast(0)
@@ -1780,7 +1786,7 @@ fun LiveChannelsScreen(
 
     LaunchedEffect(isTv, filteredChannels.size) {
         if (isTv && filteredChannels.isNotEmpty() && !initialFocusRequested) {
-            gridFirstItemFocusRequester.requestFocus()
+            runCatching { gridFirstItemFocusRequester.requestFocus() }
             initialFocusRequested = true
         }
     }
@@ -1815,10 +1821,33 @@ private fun LiveCategoryChip(
                     onFocusSelect?.invoke()
                 }
             }
-            .focusProperties {
-                if (isTv) {
-                    focusUp?.let { up = it }
-                    focusDown?.let { down = it }
+            // Jangan pakai focusProperties up/down ke FocusRequester: grid lazy bisa belum attach → crash focusSearch.
+            .onPreviewKeyEvent { event ->
+                if (!isTv) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionDown -> {
+                        val target = focusDown ?: return@onPreviewKeyEvent false
+                        when (event.type) {
+                            KeyEventType.KeyDown -> {
+                                runCatching { target.requestFocus() }
+                                true
+                            }
+                            KeyEventType.KeyUp -> true
+                            else -> false
+                        }
+                    }
+                    Key.DirectionUp -> {
+                        val target = focusUp ?: return@onPreviewKeyEvent false
+                        when (event.type) {
+                            KeyEventType.KeyDown -> {
+                                runCatching { target.requestFocus() }
+                                true
+                            }
+                            KeyEventType.KeyUp -> true
+                            else -> false
+                        }
+                    }
+                    else -> false
                 }
             }
             .focusable()
