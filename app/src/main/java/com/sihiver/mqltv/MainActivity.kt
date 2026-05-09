@@ -815,7 +815,13 @@ fun SettingsScreen(
     onForceTvModeChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
+    val isTv = LocalIsTvMode.current
     val prefs = context.getSharedPreferences(PREFS_VIDEO_SETTINGS, Context.MODE_PRIVATE)
+    val settingsAccent = Color(0xFFFF7F3A)
+    val settingsMuted = Color(0xFFD6E3FF)
+    val settingsCardGlass = Color(0x9920437E)
+    val settingsCardGlassFocused = Color(0xCC2A62B8)
+    val settingsDialogBg = Color(0xE6123A79)
 
     @Composable
     fun FocusableSettingsCard(
@@ -842,10 +848,12 @@ fun SettingsScreen(
                 }
                 .onFocusChanged { focused = it.isFocused }
                 .focusable(),
+            shape = RoundedCornerShape(12.dp),
             colors = Material3CardDefaults.cardColors(
-                containerColor = if (focused) Color(0xFF2A2A2A) else Color(0xFF1E1E1E)
+                containerColor = if (focused) settingsCardGlassFocused else settingsCardGlass
             ),
-            border = if (focused) BorderStroke(2.dp, Color(0xFFE50914)) else null
+            border = if (focused) BorderStroke(2.dp, settingsAccent) else BorderStroke(1.dp, Color(0x662A4A86)),
+            elevation = Material3CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             content()
         }
@@ -893,16 +901,22 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(Color(0xFF0A2A63))
             .statusBarsPadding()
-            .padding(24.dp)
+            .padding(horizontal = if (isTv) 28.dp else 20.dp, vertical = if (isTv) 20.dp else 16.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(if (isTv) 14.dp else 12.dp)
     ) {
         Material3Text(
-            text = "Settings",
-            fontSize = 28.sp,
+            text = "Pengaturan",
+            fontSize = if (isTv) 32.sp else 26.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White,
-            modifier = Modifier.padding(bottom = 12.dp)
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+        Material3Text(
+            text = "Sesuaikan pemutar, tampilan, dan akun.",
+            fontSize = if (isTv) 15.sp else 13.sp,
+            color = settingsMuted,
+            modifier = Modifier.padding(bottom = 8.dp)
         )
 
         FocusableSettingsCard(
@@ -911,18 +925,18 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 18.dp else 16.dp)
             ) {
                 Material3Text(
-                    text = "Force TV Mode (Preview)",
-                    fontSize = 16.sp,
+                    text = "Mode TV paksa (pratinjau)",
+                    fontSize = if (isTv) 17.sp else 16.sp,
                     color = Color.White,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold
                 )
                 Material3Text(
-                    text = if (forceTvMode) "On" else "Off",
+                    text = if (forceTvMode) "Aktif" else "Nonaktif",
                     fontSize = 14.sp,
-                    color = Color.Gray,
+                    color = settingsMuted,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -930,11 +944,11 @@ fun SettingsScreen(
         
         // Video Preferences Section
         Material3Text(
-            text = "Video Preferences",
-            fontSize = 18.sp,
+            text = "Preferensi video",
+            fontSize = if (isTv) 20.sp else 18.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF00BCD4),
-            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
+            color = settingsAccent,
+            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
         )
         
         // Player Type Setting
@@ -944,18 +958,18 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 18.dp else 16.dp)
             ) {
                 Material3Text(
                     text = "Player",
-                    fontSize = 16.sp,
+                    fontSize = if (isTv) 17.sp else 16.sp,
                     color = Color.White,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold
                 )
                 Material3Text(
                     text = currentPlayer,
                     fontSize = 14.sp,
-                    color = Color.Gray,
+                    color = settingsMuted,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -968,18 +982,18 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 18.dp else 16.dp)
             ) {
                 Material3Text(
-                    text = "Orientasi Layar",
-                    fontSize = 16.sp,
+                    text = "Orientasi layar",
+                    fontSize = if (isTv) 17.sp else 16.sp,
                     color = Color.White,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold
                 )
                 Material3Text(
                     text = currentOrientation,
                     fontSize = 14.sp,
-                    color = Color.Gray,
+                    color = settingsMuted,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -992,18 +1006,18 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 18.dp else 16.dp)
             ) {
                 Material3Text(
-                    text = "Mode Akselerasi",
-                    fontSize = 16.sp,
+                    text = "Mode akselerasi",
+                    fontSize = if (isTv) 17.sp else 16.sp,
                     color = Color.White,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold
                 )
                 Material3Text(
                     text = currentAcceleration,
                     fontSize = 14.sp,
-                    color = Color.Gray,
+                    color = settingsMuted,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -1016,18 +1030,18 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 18.dp else 16.dp)
             ) {
                 Material3Text(
-                    text = "Rasio Aspek",
-                    fontSize = 16.sp,
+                    text = "Rasio aspek",
+                    fontSize = if (isTv) 17.sp else 16.sp,
                     color = Color.White,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold
                 )
                 Material3Text(
                     text = currentAspectRatio,
                     fontSize = 14.sp,
-                    color = Color.Gray,
+                    color = settingsMuted,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -1040,18 +1054,18 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 18.dp else 16.dp)
             ) {
                 Material3Text(
-                    text = "Auto Close Player",
-                    fontSize = 16.sp,
+                    text = "Tutup player otomatis",
+                    fontSize = if (isTv) 17.sp else 16.sp,
                     color = Color.White,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold
                 )
                 Material3Text(
                     text = "Jika tidak ada interaksi: ${idleCloseLabel(currentIdleCloseMinutes)}",
                     fontSize = 14.sp,
-                    color = Color.Gray,
+                    color = settingsMuted,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -1059,11 +1073,11 @@ fun SettingsScreen(
         
         // Playlist Section
         Material3Text(
-            text = "Playlist",
-            fontSize = 18.sp,
+            text = "Daftar putar",
+            fontSize = if (isTv) 20.sp else 18.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF00BCD4),
-            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+            color = settingsAccent,
+            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
         )
         
         FocusableSettingsCard(
@@ -1072,30 +1086,31 @@ fun SettingsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 18.dp else 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Material3Text(
-                    text = "Clear Playlist",
-                    fontSize = 16.sp,
+                    text = "Hapus playlist",
+                    fontSize = if (isTv) 17.sp else 16.sp,
                     color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
                 Material3Text(
                     text = "›",
                     fontSize = 24.sp,
-                    color = Color(0xFFE50914)
+                    color = settingsAccent
                 )
             }
         }
 
         // Account Section
         Material3Text(
-            text = "Account",
-            fontSize = 18.sp,
+            text = "Akun",
+            fontSize = if (isTv) 20.sp else 18.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF00BCD4),
-            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+            color = settingsAccent,
+            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
         )
 
         FocusableSettingsCard(
@@ -1104,19 +1119,20 @@ fun SettingsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(horizontal = if (isTv) 20.dp else 16.dp, vertical = if (isTv) 18.dp else 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Material3Text(
-                    text = "Logout",
-                    fontSize = 16.sp,
+                    text = "Keluar",
+                    fontSize = if (isTv) 17.sp else 16.sp,
                     color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
                 Material3Text(
                     text = "›",
                     fontSize = 24.sp,
-                    color = Color(0xFFE50914)
+                    color = settingsAccent
                 )
             }
         }
@@ -1147,7 +1163,8 @@ fun SettingsScreen(
                                     showOrientationDialog = false
                                 },
                                 colors = RadioButtonDefaults.colors(
-                                    selectedColor = Color(0xFF00BCD4)
+                                    selectedColor = settingsAccent,
+                                    unselectedColor = settingsMuted
                                 )
                             )
                             Material3Text(
@@ -1161,10 +1178,10 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showOrientationDialog = false }) {
-                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                    Material3Text("Tutup", color = settingsAccent)
                 }
             },
-            containerColor = Color(0xFF1E1E1E)
+            containerColor = settingsDialogBg
         )
     }
     
@@ -1193,7 +1210,8 @@ fun SettingsScreen(
                                     showAccelerationDialog = false
                                 },
                                 colors = RadioButtonDefaults.colors(
-                                    selectedColor = Color(0xFF00BCD4)
+                                    selectedColor = settingsAccent,
+                                    unselectedColor = settingsMuted
                                 )
                             )
                             Material3Text(
@@ -1207,10 +1225,10 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showAccelerationDialog = false }) {
-                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                    Material3Text("Tutup", color = settingsAccent)
                 }
             },
-            containerColor = Color(0xFF1E1E1E)
+            containerColor = settingsDialogBg
         )
     }
     
@@ -1239,7 +1257,8 @@ fun SettingsScreen(
                                     showAspectRatioDialog = false
                                 },
                                 colors = RadioButtonDefaults.colors(
-                                    selectedColor = Color(0xFF00BCD4)
+                                    selectedColor = settingsAccent,
+                                    unselectedColor = settingsMuted
                                 )
                             )
                             Material3Text(
@@ -1253,10 +1272,10 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showAspectRatioDialog = false }) {
-                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                    Material3Text("Tutup", color = settingsAccent)
                 }
             },
-            containerColor = Color(0xFF1E1E1E)
+            containerColor = settingsDialogBg
         )
     }
     
@@ -1285,7 +1304,8 @@ fun SettingsScreen(
                                     showPlayerDialog = false
                                 },
                                 colors = RadioButtonDefaults.colors(
-                                    selectedColor = Color(0xFF00BCD4)
+                                    selectedColor = settingsAccent,
+                                    unselectedColor = settingsMuted
                                 )
                             )
                             Column(modifier = Modifier.padding(start = 8.dp)) {
@@ -1299,7 +1319,7 @@ fun SettingsScreen(
                                         "Native" -> "Android native VideoView"
                                         else -> "Default player"
                                     },
-                                    color = Color.Gray,
+                                    color = settingsMuted,
                                     fontSize = 12.sp
                                 )
                             }
@@ -1309,10 +1329,10 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showPlayerDialog = false }) {
-                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                    Material3Text("Tutup", color = settingsAccent)
                 }
             },
-            containerColor = Color(0xFF1E1E1E)
+            containerColor = settingsDialogBg
         )
     }
 
@@ -1341,7 +1361,8 @@ fun SettingsScreen(
                                     showIdleCloseDialog = false
                                 },
                                 colors = RadioButtonDefaults.colors(
-                                    selectedColor = Color(0xFF00BCD4)
+                                    selectedColor = settingsAccent,
+                                    unselectedColor = settingsMuted
                                 )
                             )
                             Column(modifier = Modifier.padding(start = 8.dp)) {
@@ -1352,7 +1373,7 @@ fun SettingsScreen(
                                 if (minutes <= 0) {
                                     Material3Text(
                                         text = "Tidak otomatis menutup player",
-                                        color = Color.Gray,
+                                        color = settingsMuted,
                                         fontSize = 12.sp
                                     )
                                 } else {
@@ -1363,7 +1384,7 @@ fun SettingsScreen(
                                     }
                                     Material3Text(
                                         text = "Menutup player setelah $label tanpa interaksi",
-                                        color = Color.Gray,
+                                        color = settingsMuted,
                                         fontSize = 12.sp
                                     )
                                 }
@@ -1374,10 +1395,10 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showIdleCloseDialog = false }) {
-                    Material3Text("Tutup", color = Color(0xFF00BCD4))
+                    Material3Text("Tutup", color = settingsAccent)
                 }
             },
-            containerColor = Color(0xFF1E1E1E)
+            containerColor = settingsDialogBg
         )
     }
 }
