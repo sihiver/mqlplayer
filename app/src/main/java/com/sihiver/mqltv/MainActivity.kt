@@ -364,6 +364,7 @@ class MainActivity : ComponentActivity() {
                     val headerSearchFocusRequester = remember { FocusRequester() }
                     val headerRefreshFocusRequester = remember { FocusRequester() }
                     val headerFavoritesFocusRequester = remember { FocusRequester() }
+                    val liveGridEntryFocusRequester = remember { FocusRequester() }
                     val sidebarWidth by animateDpAsState(
                         targetValue = if (sidebarExpanded) 220.dp else 72.dp,
                         label = "tvSidebarWidth"
@@ -417,7 +418,8 @@ class MainActivity : ComponentActivity() {
                                     },
                                     headerSearchFocusRequester = headerSearchFocusRequester,
                                     headerRefreshFocusRequester = headerRefreshFocusRequester,
-                                    headerFavoritesFocusRequester = headerFavoritesFocusRequester
+                                    headerFavoritesFocusRequester = headerFavoritesFocusRequester,
+                                    gridEntryFocusRequester = liveGridEntryFocusRequester,
                                 )
                                 1 -> MovieChannelsScreen(
                                     onChannelClick = { channel ->
@@ -497,8 +499,11 @@ class MainActivity : ComponentActivity() {
                                             // system handle navigation (and avoid FocusRequester crashes).
                                             if (event.key == Key.DirectionRight) {
                                                 if (selectedTab == 0 && event.type == KeyEventType.KeyDown) {
-                                                    // Header Live bisa tidak ter-compose (mis. daftar penuh hasil cari).
+                                                    // Prioritas kembali ke grid Live agar saat balik dari sidebar fokus ke channel.
+                                                    // Fallback ke header search jika grid belum siap/ter-compose.
                                                     val ok = runCatching {
+                                                        liveGridEntryFocusRequester.requestFocus()
+                                                    }.isSuccess || runCatching {
                                                         headerSearchFocusRequester.requestFocus()
                                                     }.isSuccess
                                                     return@onKeyEvent ok
@@ -1383,6 +1388,7 @@ fun LiveChannelsScreen(
     headerSearchFocusRequester: FocusRequester? = null,
     headerRefreshFocusRequester: FocusRequester? = null,
     headerFavoritesFocusRequester: FocusRequester? = null,
+    gridEntryFocusRequester: FocusRequester? = null,
 ) {
     val context = LocalContext.current
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
@@ -1397,8 +1403,10 @@ fun LiveChannelsScreen(
     val density = LocalDensity.current
     val tabRowScrollState = rememberScrollState()
     val gridFirstItemFocusRequester = remember { FocusRequester() }
+    val sidebarGridEntryFocusRequester = gridEntryFocusRequester ?: remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf("ALL_CHANNELS") }
+    var lastFocusedChannelId by remember { mutableStateOf<Int?>(null) }
 
     // Manual refresh state (refresh button next to search)
     var isRefreshing by remember { mutableStateOf(false) }
@@ -1459,6 +1467,14 @@ fun LiveChannelsScreen(
             channels.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
         }
     }
+    val firstFilteredChannelId = filteredChannels.firstOrNull()?.id
+    val sidebarEntryTargetId = lastFocusedChannelId ?: firstFilteredChannelId
+    val tabToGridFocusRequester =
+        if (isTv && firstFilteredChannelId != null && sidebarEntryTargetId == firstFilteredChannelId) {
+            sidebarGridEntryFocusRequester
+        } else {
+            gridFirstItemFocusRequester
+        }
 
     // FocusRequester per kategori dijaga stabil (tidak di-reset tiap refresh daftar tab).
     val tabFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
@@ -1726,7 +1742,7 @@ fun LiveChannelsScreen(
                         focusRequester = tabFr,
                         focusUp = searchActionFocusRequester,
                         focusDown = if (filteredChannels.isNotEmpty()) {
-                            gridFirstItemFocusRequester
+                            tabToGridFocusRequester
                         } else {
                             null
                         },
@@ -1763,6 +1779,12 @@ fun LiveChannelsScreen(
         ) {
             gridItemsIndexed(filteredChannels) { index, channel ->
                 val isFirstGridRow = index < gridColumns
+                val shouldAttachSidebarEntryRequester = isTv &&
+                    sidebarEntryTargetId != null &&
+                    channel.id == sidebarEntryTargetId
+                val shouldAttachFirstItemRequester = isTv &&
+                    index == 0 &&
+                    (!shouldAttachSidebarEntryRequester || tabToGridFocusRequester === gridFirstItemFocusRequester)
                 LiveChannelGridCard(
                     channel = channel,
                     channelNumber = index + 1,
@@ -1770,8 +1792,15 @@ fun LiveChannelsScreen(
                         .then(
                             // Selalu pasang requester di sel pertama selama grid ada isi — jika tidak,
                             // focusDown dari tab mengarah ke requester yang tidak pernah di-attach (crash).
-                            if (isTv && index == 0) {
+                            if (shouldAttachFirstItemRequester) {
                                 Modifier.focusRequester(gridFirstItemFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .then(
+                            if (shouldAttachSidebarEntryRequester) {
+                                Modifier.focusRequester(sidebarGridEntryFocusRequester)
                             } else {
                                 Modifier
                             }
@@ -1779,6 +1808,9 @@ fun LiveChannelsScreen(
                     onClick = onChannelClick,
                     onNavigateUpFromFirstRow = if (isTv) navigateUpFromFirstGridRow else null,
                     isFirstGridRow = isFirstGridRow,
+                    onFocused = {
+                        lastFocusedChannelId = channel.id
+                    },
                 )
             }
         }
@@ -1786,7 +1818,7 @@ fun LiveChannelsScreen(
 
     LaunchedEffect(isTv, filteredChannels.size) {
         if (isTv && filteredChannels.isNotEmpty() && !initialFocusRequested) {
-            runCatching { gridFirstItemFocusRequester.requestFocus() }
+            runCatching { tabToGridFocusRequester.requestFocus() }
             initialFocusRequested = true
         }
     }
@@ -1950,6 +1982,7 @@ private fun LiveChannelGridCard(
     /** TV: DPAD atas dari baris pertama — fokus + scroll ke tab kategori aktif (telan KeyDown/KeyUp agar tidak lompat acak). */
     onNavigateUpFromFirstRow: (() -> Unit)? = null,
     isFirstGridRow: Boolean = false,
+    onFocused: (() -> Unit)? = null,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val isTv = LocalIsTvMode.current
@@ -1960,7 +1993,12 @@ private fun LiveChannelGridCard(
         modifier = modifier
             .fillMaxWidth()
             .height(if (isTv) 178.dp else 150.dp)
-            .onFocusChanged { isFocused = it.isFocused }
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) {
+                    onFocused?.invoke()
+                }
+            }
             .onPreviewKeyEvent { event ->
                 if (!isTv || !isFirstGridRow || onNavigateUpFromFirstRow == null) {
                     return@onPreviewKeyEvent false
