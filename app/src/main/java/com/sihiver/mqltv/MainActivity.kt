@@ -1699,6 +1699,7 @@ fun LiveChannelsScreen(
                         text = formatLiveCategoryTabLabel(category),
                         selected = selectedCategory == category,
                         onClick = { selectedCategory = category },
+                        onFocusSelect = { selectedCategory = category },
                         focusRequester = tabFr,
                         focusUp = searchActionFocusRequester,
                         focusDown = if (filteredChannels.isNotEmpty()) {
@@ -1779,6 +1780,8 @@ private fun LiveCategoryChip(
     focusRequester: FocusRequester? = null,
     focusUp: FocusRequester? = null,
     focusDown: FocusRequester? = null,
+    /** TV: panggil saat chip mendapat fokus (D-pad) agar filter/grid ikut tab yang difokus. */
+    onFocusSelect: (() -> Unit)? = null,
     isTv: Boolean = false,
 ) {
     val chipBg = if (selected) Color(0xFFFF7F3A) else Color(0xFF17336A)
@@ -1788,6 +1791,11 @@ private fun LiveCategoryChip(
             .height(40.dp)
             .defaultMinSize(minWidth = 110.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged { state ->
+                if (isTv && state.isFocused) {
+                    onFocusSelect?.invoke()
+                }
+            }
             .focusProperties {
                 if (isTv) {
                     focusUp?.let { up = it }
