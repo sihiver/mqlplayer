@@ -62,11 +62,13 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -1388,6 +1390,8 @@ fun LiveChannelsScreen(
     var searchResults by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var searchResultsTitle by remember { mutableStateOf("Search") }
     val isTv = LocalIsTvMode.current
+    val density = LocalDensity.current
+    val tabRowScrollState = rememberScrollState()
     val gridFirstItemFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf("ALL_CHANNELS") }
@@ -1452,11 +1456,29 @@ fun LiveChannelsScreen(
         }
     }
 
-    val tabFocusRequesters = remember(categoryTabs) {
-        categoryTabs.associateWith { FocusRequester() }
+    // FocusRequester per kategori dijaga stabil (tidak di-reset tiap refresh daftar tab).
+    val tabFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    for (category in categoryTabs) {
+        if (!tabFocusRequesters.containsKey(category)) {
+            tabFocusRequesters[category] = FocusRequester()
+        }
     }
-    val selectedTabFocusRequester = tabFocusRequesters[selectedCategory]
-        ?: tabFocusRequesters[categoryTabs.firstOrNull()]
+    // Baca selectedCategory saat dipanggil — fokus+scroll ke tab yang sedang aktif (filter).
+    // Dipakai dari baris pertama grid (UP) dan dari header (DOWN); hindari traversal spasial yang salah.
+    val focusSelectedCategoryTabAndScroll: () -> Unit = {
+        val fr = tabFocusRequesters[selectedCategory]
+            ?: categoryTabs.firstOrNull()?.let { tabFocusRequesters[it] }
+        fr?.requestFocus()
+        scope.launch {
+            kotlinx.coroutines.delay(48)
+            val idx = categoryTabs.indexOf(selectedCategory).coerceAtLeast(0)
+            val stridePx = with(density) { 132.dp.roundToPx() }
+            val target = (idx * stridePx).coerceIn(0, tabRowScrollState.maxValue)
+            tabRowScrollState.animateScrollTo(target)
+        }
+    }
+
+    val navigateUpFromFirstGridRow: () -> Unit = focusSelectedCategoryTabAndScroll
 
     if (showSearchResults) {
         FullChannelListScreen(
@@ -1557,12 +1579,10 @@ fun LiveChannelsScreen(
                         .background(if (isSearchFocused) Color(0x33FFFFFF) else Color.Transparent)
                         .focusRequester(searchActionFocusRequester)
                         .onFocusChanged { isSearchFocused = it.isFocused }
+                        .onTvHeaderNavigateDownToActiveTab(isTv, focusSelectedCategoryTabAndScroll)
                         .focusable()
                         .focusProperties {
                             right = refreshActionFocusRequester
-                            if (isTv && selectedTabFocusRequester != null) {
-                                down = selectedTabFocusRequester
-                            }
                         }
                         .onKeyEvent { event ->
                             if (!isTv || event.type != KeyEventType.KeyUp) return@onKeyEvent false
@@ -1592,13 +1612,11 @@ fun LiveChannelsScreen(
                         .background(if (isRefreshFocused) Color(0x33FFFFFF) else Color.Transparent)
                         .focusRequester(refreshActionFocusRequester)
                         .onFocusChanged { isRefreshFocused = it.isFocused }
+                        .onTvHeaderNavigateDownToActiveTab(isTv, focusSelectedCategoryTabAndScroll)
                         .focusable()
                         .focusProperties {
                             left = searchActionFocusRequester
                             right = favoritesActionFocusRequester
-                            if (isTv && selectedTabFocusRequester != null) {
-                                down = selectedTabFocusRequester
-                            }
                         }
                         .onKeyEvent { event ->
                             if (!isTv || event.type != KeyEventType.KeyUp) return@onKeyEvent false
@@ -1660,12 +1678,10 @@ fun LiveChannelsScreen(
                         .background(if (isFavoritesFocused) Color(0x33FFFFFF) else Color.Transparent)
                         .focusRequester(favoritesActionFocusRequester)
                         .onFocusChanged { isFavoritesFocused = it.isFocused }
+                        .onTvHeaderNavigateDownToActiveTab(isTv, focusSelectedCategoryTabAndScroll)
                         .focusable()
                         .focusProperties {
                             left = refreshActionFocusRequester
-                            if (isTv && selectedTabFocusRequester != null) {
-                                down = selectedTabFocusRequester
-                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -1687,11 +1703,10 @@ fun LiveChannelsScreen(
         }
 
         if (isTv) {
-            val tabScroll = rememberScrollState()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(tabScroll)
+                    .horizontalScroll(tabRowScrollState)
                     .padding(horizontal = 20.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -1754,13 +1769,10 @@ fun LiveChannelsScreen(
                             } else {
                                 Modifier
                             }
-                        )
-                        .focusProperties {
-                            if (isTv && isFirstGridRow && selectedTabFocusRequester != null) {
-                                up = selectedTabFocusRequester
-                            }
-                        },
-                    onClick = onChannelClick
+                        ),
+                    onClick = onChannelClick,
+                    onNavigateUpFromFirstRow = if (isTv) navigateUpFromFirstGridRow else null,
+                    isFirstGridRow = isFirstGridRow,
                 )
             }
         }
@@ -1852,6 +1864,25 @@ private fun LiveCategoryChip(
     }
 }
 
+/** TV: DPAD bawah dari header — paksa ke tab sesuai kategori aktif (bukan tab pertama di viewport). */
+private fun Modifier.onTvHeaderNavigateDownToActiveTab(
+    isTv: Boolean,
+    onNavigateDown: () -> Unit,
+): Modifier {
+    if (!isTv) return this
+    return this.onPreviewKeyEvent { event ->
+        if (event.key != Key.DirectionDown) return@onPreviewKeyEvent false
+        when (event.type) {
+            KeyEventType.KeyDown -> {
+                onNavigateDown()
+                true
+            }
+            KeyEventType.KeyUp -> true
+            else -> false
+        }
+    }
+}
+
 private fun formatLiveCategoryTabLabel(rawCategory: String): String {
     if (rawCategory == "ALL_CHANNELS") return "All Channels"
 
@@ -1886,7 +1917,10 @@ private fun LiveChannelGridCard(
     channel: Channel,
     channelNumber: Int,
     onClick: (Channel) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** TV: DPAD atas dari baris pertama — fokus + scroll ke tab kategori aktif (telan KeyDown/KeyUp agar tidak lompat acak). */
+    onNavigateUpFromFirstRow: (() -> Unit)? = null,
+    isFirstGridRow: Boolean = false,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val isTv = LocalIsTvMode.current
@@ -1898,6 +1932,20 @@ private fun LiveChannelGridCard(
             .fillMaxWidth()
             .height(if (isTv) 178.dp else 150.dp)
             .onFocusChanged { isFocused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (!isTv || !isFirstGridRow || onNavigateUpFromFirstRow == null) {
+                    return@onPreviewKeyEvent false
+                }
+                if (event.key != Key.DirectionUp) return@onPreviewKeyEvent false
+                when (event.type) {
+                    KeyEventType.KeyDown -> {
+                        onNavigateUpFromFirstRow()
+                        true
+                    }
+                    KeyEventType.KeyUp -> true
+                    else -> false
+                }
+            }
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                 when (event.key) {
