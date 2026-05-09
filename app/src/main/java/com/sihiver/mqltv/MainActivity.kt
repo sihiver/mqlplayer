@@ -72,10 +72,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.tv.material3.*
 import androidx.compose.material3.Card as Material3Card
 import androidx.compose.material3.CardDefaults as Material3CardDefaults
@@ -1775,6 +1777,7 @@ fun LiveChannelsScreen(
 @Composable
 private fun LiveCategoryChip(
     text: String,
+    /** Tab aktif = filter yang dipakai (tetap terlihat saat fokus di grid). */
     selected: Boolean,
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
@@ -1784,7 +1787,10 @@ private fun LiveCategoryChip(
     onFocusSelect: (() -> Unit)? = null,
     isTv: Boolean = false,
 ) {
-    val chipBg = if (selected) Color(0xFFFF7F3A) else Color(0xFF17336A)
+    var isFocused by remember { mutableStateOf(false) }
+    val accent = Color(0xFFFF7F3A)
+    val chipBg = Color(0xFF17336A)
+    val shape = RoundedCornerShape(10.dp)
     Surface(
         onClick = onClick,
         modifier = Modifier
@@ -1792,6 +1798,7 @@ private fun LiveCategoryChip(
             .defaultMinSize(minWidth = 110.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { state ->
+                isFocused = state.isFocused
                 if (isTv && state.isFocused) {
                     onFocusSelect?.invoke()
                 }
@@ -1802,8 +1809,15 @@ private fun LiveCategoryChip(
                     focusDown?.let { down = it }
                 }
             }
-            .focusable(),
-        shape = RoundedCornerShape(10.dp),
+            .focusable()
+            .then(
+                if (isTv && isFocused) {
+                    Modifier.border(width = 2.dp, color = accent, shape = shape)
+                } else {
+                    Modifier
+                }
+            ),
+        shape = shape,
         color = chipBg,
         shadowElevation = 0.dp,
         tonalElevation = 0.dp,
@@ -1816,7 +1830,7 @@ private fun LiveCategoryChip(
         ) {
             Material3Text(
                 text = text,
-                color = Color.White,
+                color = if (selected) accent else Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -1824,6 +1838,7 @@ private fun LiveCategoryChip(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     lineHeight = 13.sp,
+                    textDecoration = if (selected) TextDecoration.Underline else TextDecoration.None,
                     platformStyle = PlatformTextStyle(
                         includeFontPadding = false,
                     ),
