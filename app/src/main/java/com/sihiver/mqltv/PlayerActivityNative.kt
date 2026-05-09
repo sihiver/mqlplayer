@@ -63,16 +63,6 @@ class PlayerActivityNative : ComponentActivity() {
         // Initialize presence manager
         presenceManager = PresenceManager(this)
 
-        if (isLikelyEmulator()) {
-            Toast.makeText(
-                this,
-                "Native player tidak didukung di emulator ini",
-                Toast.LENGTH_SHORT
-            ).show()
-            finish()
-            return
-        }
-
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 

@@ -413,16 +413,6 @@ class PlayerActivityVLC : ComponentActivity() {
         // Initialize presence manager for tracking user online/offline status
         presenceManager = PresenceManager(this)
 
-        if (isLikelyEmulator()) {
-            android.widget.Toast.makeText(
-                this,
-                "VLC player tidak didukung di emulator ini",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-            finish()
-            return
-        }
-
         // Safety gate
         if (!AuthRepository.isLoggedIn(this)) {
             startActivity(

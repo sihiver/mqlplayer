@@ -261,16 +261,6 @@ class PlayerActivityExo : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (isLikelyEmulator()) {
-            android.widget.Toast.makeText(
-                this,
-                "ExoPlayer tidak didukung di emulator ini",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-            finish()
-            return
-        }
-        
         android.util.Log.d("PlayerActivityExo", "onCreate - using ExoPlayer with FFmpeg extension")
         
         // Load video settings
