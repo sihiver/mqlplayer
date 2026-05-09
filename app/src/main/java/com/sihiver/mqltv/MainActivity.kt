@@ -47,6 +47,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
@@ -1385,7 +1386,7 @@ fun LiveChannelsScreen(
     var searchResults by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var searchResultsTitle by remember { mutableStateOf("Search") }
     val isTv = LocalIsTvMode.current
-    val initialFocusRequester = remember { FocusRequester() }
+    val gridFirstItemFocusRequester = remember { FocusRequester() }
     var initialFocusRequested by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf("ALL_CHANNELS") }
 
@@ -1448,6 +1449,12 @@ fun LiveChannelsScreen(
             channels.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
         }
     }
+
+    val tabFocusRequesters = remember(categoryTabs) {
+        categoryTabs.associateWith { FocusRequester() }
+    }
+    val selectedTabFocusRequester = tabFocusRequesters[selectedCategory]
+        ?: tabFocusRequesters[categoryTabs.firstOrNull()]
 
     if (showSearchResults) {
         FullChannelListScreen(
@@ -1549,7 +1556,12 @@ fun LiveChannelsScreen(
                         .focusRequester(searchActionFocusRequester)
                         .onFocusChanged { isSearchFocused = it.isFocused }
                         .focusable()
-                        .focusProperties { right = refreshActionFocusRequester }
+                        .focusProperties {
+                            right = refreshActionFocusRequester
+                            if (isTv && selectedTabFocusRequester != null) {
+                                down = selectedTabFocusRequester
+                            }
+                        }
                         .onKeyEvent { event ->
                             if (!isTv || event.type != KeyEventType.KeyUp) return@onKeyEvent false
                             when (event.key) {
@@ -1582,6 +1594,9 @@ fun LiveChannelsScreen(
                         .focusProperties {
                             left = searchActionFocusRequester
                             right = favoritesActionFocusRequester
+                            if (isTv && selectedTabFocusRequester != null) {
+                                down = selectedTabFocusRequester
+                            }
                         }
                         .onKeyEvent { event ->
                             if (!isTv || event.type != KeyEventType.KeyUp) return@onKeyEvent false
@@ -1644,7 +1659,12 @@ fun LiveChannelsScreen(
                         .focusRequester(favoritesActionFocusRequester)
                         .onFocusChanged { isFavoritesFocused = it.isFocused }
                         .focusable()
-                        .focusProperties { left = refreshActionFocusRequester },
+                        .focusProperties {
+                            left = refreshActionFocusRequester
+                            if (isTv && selectedTabFocusRequester != null) {
+                                down = selectedTabFocusRequester
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -1664,20 +1684,50 @@ fun LiveChannelsScreen(
             }
         }
 
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(categoryTabs) { category ->
-                LiveCategoryChip(
-                    text = formatLiveCategoryTabLabel(category),
-                    selected = selectedCategory == category,
-                    onClick = { selectedCategory = category }
-                )
+        if (isTv) {
+            val tabScroll = rememberScrollState()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(tabScroll)
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                categoryTabs.forEach { category ->
+                    val tabFr = tabFocusRequesters.getValue(category)
+                    LiveCategoryChip(
+                        text = formatLiveCategoryTabLabel(category),
+                        selected = selectedCategory == category,
+                        onClick = { selectedCategory = category },
+                        focusRequester = tabFr,
+                        focusUp = searchActionFocusRequester,
+                        focusDown = if (filteredChannels.isNotEmpty()) {
+                            gridFirstItemFocusRequester
+                        } else {
+                            null
+                        },
+                        isTv = true,
+                    )
+                }
+            }
+        } else {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                itemsIndexed(categoryTabs) { _, category ->
+                    LiveCategoryChip(
+                        text = formatLiveCategoryTabLabel(category),
+                        selected = selectedCategory == category,
+                        onClick = { selectedCategory = category },
+                        isTv = false,
+                    )
+                }
             }
         }
 
+        val gridColumns = if (isTv) 6 else 3
         LazyVerticalGrid(
             columns = if (isTv) GridCells.Fixed(6) else GridCells.Fixed(3),
             modifier = Modifier
@@ -1688,14 +1738,25 @@ fun LiveChannelsScreen(
             contentPadding = PaddingValues(bottom = 20.dp)
         ) {
             gridItemsIndexed(filteredChannels) { index, channel ->
+                val isFirstGridRow = index < gridColumns
                 LiveChannelGridCard(
                     channel = channel,
                     channelNumber = index + 1,
-                    modifier = if (isTv && index == 0 && !initialFocusRequested) {
-                        Modifier.focusRequester(initialFocusRequester)
-                    } else {
-                        Modifier
-                    },
+                    modifier = Modifier
+                        .then(
+                            // Selalu pasang requester di sel pertama selama grid ada isi — jika tidak,
+                            // focusDown dari tab mengarah ke requester yang tidak pernah di-attach (crash).
+                            if (isTv && index == 0) {
+                                Modifier.focusRequester(gridFirstItemFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .focusProperties {
+                            if (isTv && isFirstGridRow && selectedTabFocusRequester != null) {
+                                up = selectedTabFocusRequester
+                            }
+                        },
                     onClick = onChannelClick
                 )
             }
@@ -1704,7 +1765,7 @@ fun LiveChannelsScreen(
 
     LaunchedEffect(isTv, filteredChannels.size) {
         if (isTv && filteredChannels.isNotEmpty() && !initialFocusRequested) {
-            initialFocusRequester.requestFocus()
+            gridFirstItemFocusRequester.requestFocus()
             initialFocusRequested = true
         }
     }
@@ -1714,14 +1775,26 @@ fun LiveChannelsScreen(
 private fun LiveCategoryChip(
     text: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+    focusUp: FocusRequester? = null,
+    focusDown: FocusRequester? = null,
+    isTv: Boolean = false,
 ) {
     val chipBg = if (selected) Color(0xFFFF7F3A) else Color(0xFF17336A)
     Surface(
         onClick = onClick,
         modifier = Modifier
             .height(40.dp)
-            .defaultMinSize(minWidth = 110.dp),
+            .defaultMinSize(minWidth = 110.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .focusProperties {
+                if (isTv) {
+                    focusUp?.let { up = it }
+                    focusDown?.let { down = it }
+                }
+            }
+            .focusable(),
         shape = RoundedCornerShape(10.dp),
         color = chipBg,
         shadowElevation = 0.dp,
