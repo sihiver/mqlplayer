@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -119,6 +120,7 @@ private fun resolveInitialLiveCategory(context: Context): String {
 /** Panel video dipisah dari [Column] induk agar [androidx.compose.animation.AnimatedVisibility] tidak bentrok dengan `ColumnScope.AnimatedVisibility`. */
 @Composable
 private fun PortraitLiveGuideVideoPanel(
+    modifier: Modifier,
     playingChannel: Channel?,
     presenceManager: PresenceManager,
     accelerationSetting: String,
@@ -128,13 +130,11 @@ private fun PortraitLiveGuideVideoPanel(
     selectedCategory: String,
     context: Context,
     onClose: () -> Unit,
-    onFullscreen: (Channel) -> Unit,
+    isInlineVideoFullscreen: Boolean,
+    onToggleInlineFullscreen: () -> Unit,
 ) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .background(Color.Black)
+        modifier = modifier.background(Color.Black)
     ) {
         PortraitInlinePlayer(
             channel = playingChannel,
@@ -181,10 +181,22 @@ private fun PortraitLiveGuideVideoPanel(
                         onIdleBump()
                         ChannelRepository.addToRecentlyWatched(context, ch.id)
                         ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
-                        onFullscreen(ch)
+                        onToggleInlineFullscreen()
                     }
                 ) {
-                    Icon(Icons.Default.Fullscreen, contentDescription = "Layar penuh", tint = Color.White)
+                    Icon(
+                        imageVector = if (isInlineVideoFullscreen) {
+                            Icons.Default.FullscreenExit
+                        } else {
+                            Icons.Default.Fullscreen
+                        },
+                        contentDescription = if (isInlineVideoFullscreen) {
+                            "Keluar layar penuh"
+                        } else {
+                            "Layar penuh"
+                        },
+                        tint = Color.White
+                    )
                 }
             }
         }
@@ -224,14 +236,26 @@ private fun PortraitLiveGuideVideoPanel(
 @Composable
 fun PortraitLiveGuideScreen(
     initialChannelId: Int,
-    onFullscreen: (Channel) -> Unit,
     onClose: () -> Unit,
+    onInlineFullscreenChanged: (isLandscape: Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val presenceManager = remember { PresenceManager(context.applicationContext) }
     val scope = rememberCoroutineScope()
 
-    BackHandler(onBack = onClose)
+    var isInlineVideoFullscreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isInlineVideoFullscreen) {
+        onInlineFullscreenChanged(isInlineVideoFullscreen)
+    }
+
+    BackHandler(onBack = {
+        if (isInlineVideoFullscreen) {
+            isInlineVideoFullscreen = false
+        } else {
+            onClose()
+        }
+    })
 
     DisposableEffect(Unit) {
         onDispose {
@@ -402,6 +426,15 @@ fun PortraitLiveGuideScreen(
             .navigationBarsPadding()
     ) {
         PortraitLiveGuideVideoPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (isInlineVideoFullscreen) {
+                        Modifier.weight(1f)
+                    } else {
+                        Modifier.aspectRatio(16f / 9f)
+                    }
+                ),
             playingChannel = playingChannel,
             presenceManager = presenceManager,
             accelerationSetting = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)",
@@ -413,158 +446,167 @@ fun PortraitLiveGuideScreen(
             onIdleBump = { videoChromeIdleReset++ },
             selectedCategory = selectedCategory,
             context = context,
-            onClose = onClose,
-            onFullscreen = onFullscreen,
+            onClose = {
+                if (isInlineVideoFullscreen) {
+                    isInlineVideoFullscreen = false
+                } else {
+                    onClose()
+                }
+            },
+            isInlineVideoFullscreen = isInlineVideoFullscreen,
+            onToggleInlineFullscreen = { isInlineVideoFullscreen = !isInlineVideoFullscreen },
         )
 
-        playingChannel?.let { current ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
+        if (!isInlineVideoFullscreen) {
+            playingChannel?.let { current ->
+                Row(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (current.logo.isNotBlank()) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(current.logo)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(6.dp),
-                            contentScale = ContentScale.Fit
-                        )
-                    } else {
-                        Material3Text(
-                            current.name.take(3).uppercase(Locale.getDefault()),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF123067)
-                        )
-                    }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Material3Text(
-                        current.category.ifBlank { "Live TV" },
-                        color = Color(0xFFB0BEC5),
-                        fontSize = 12.sp
-                    )
-                    Material3Text(
-                        current.name,
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Material3Text(
-                "GUIDE",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { showSearchDialog = true }) {
-                    Icon(Icons.Default.Search, contentDescription = "Cari", tint = Color.White)
-                }
-                IconButton(
-                    onClick = {
-                        if (isRefreshing) return@IconButton
-                        isRefreshing = true
-                        scope.launch {
-                            try {
-                                ChannelRepository.getPlaylistUrls(context).forEach { url ->
-                                    ChannelRepository.refreshPlaylistFromServer(context, url)
-                                }
-                                refreshKey++
-                            } finally {
-                                isRefreshing = false
-                            }
-                        }
-                    }
-                ) {
-                    if (isRefreshing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
-                    }
-                }
-                Box {
-                    OutlinedButton(onClick = { guideFilterMenuExpanded = true }) {
-                        Material3Text(
-                            portraitCategoryLabel(selectedCategory),
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = guideFilterMenuExpanded,
-                        onDismissRequest = { guideFilterMenuExpanded = false }
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
                     ) {
-                        categoryTabs.forEach { cat ->
-                            DropdownMenuItem(
-                                text = { Material3Text(portraitCategoryLabel(cat)) },
-                                onClick = {
-                                    selectedCategory = cat
-                                    guideFilterMenuExpanded = false
-                                }
+                        if (current.logo.isNotBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(current.logo)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(6.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                        } else {
+                            Material3Text(
+                                current.name.take(3).uppercase(Locale.getDefault()),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF123067)
                             )
                         }
                     }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Material3Text(
+                            current.category.ifBlank { "Live TV" },
+                            color = Color(0xFFB0BEC5),
+                            fontSize = 12.sp
+                        )
+                        Material3Text(
+                            current.name,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
-        }
 
-        HorizontalDivider(color = Color(0x22FFFFFF))
-
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            itemsIndexed(filteredChannels) { index, channel ->
-                GuideChannelRow(
-                    channel = channel,
-                    rank = index + 1,
-                    isSelected = playingChannel?.id == channel.id,
-                    onClick = {
-                        ChannelRepository.addToRecentlyWatched(context, channel.id)
-                        ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
-                        playingChannel = channel
-                    }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Material3Text(
+                    "GUIDE",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
                 )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { showSearchDialog = true }) {
+                        Icon(Icons.Default.Search, contentDescription = "Cari", tint = Color.White)
+                    }
+                    IconButton(
+                        onClick = {
+                            if (isRefreshing) return@IconButton
+                            isRefreshing = true
+                            scope.launch {
+                                try {
+                                    ChannelRepository.getPlaylistUrls(context).forEach { url ->
+                                        ChannelRepository.refreshPlaylistFromServer(context, url)
+                                    }
+                                    refreshKey++
+                                } finally {
+                                    isRefreshing = false
+                                }
+                            }
+                        }
+                    ) {
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                        }
+                    }
+                    Box {
+                        OutlinedButton(onClick = { guideFilterMenuExpanded = true }) {
+                            Material3Text(
+                                portraitCategoryLabel(selectedCategory),
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = guideFilterMenuExpanded,
+                            onDismissRequest = { guideFilterMenuExpanded = false }
+                        ) {
+                            categoryTabs.forEach { cat ->
+                                DropdownMenuItem(
+                                    text = { Material3Text(portraitCategoryLabel(cat)) },
+                                    onClick = {
+                                        selectedCategory = cat
+                                        guideFilterMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Color(0x22FFFFFF))
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                itemsIndexed(filteredChannels) { index, channel ->
+                    GuideChannelRow(
+                        channel = channel,
+                        rank = index + 1,
+                        isSelected = playingChannel?.id == channel.id,
+                        onClick = {
+                            ChannelRepository.addToRecentlyWatched(context, channel.id)
+                            ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
+                            playingChannel = channel
+                        }
+                    )
+                }
             }
         }
     }

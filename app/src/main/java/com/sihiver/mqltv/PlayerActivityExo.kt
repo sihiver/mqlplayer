@@ -286,17 +286,12 @@ class PlayerActivityExo : ComponentActivity() {
             }
         }
         
-        // TV: landscape. HP dari grid: potret. HP dari tombol layar penuh (PortraitLiveGuide): landscape.
+        // TV: landscape. HP dari grid: potret.
         val isTvDevice =
             (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
                 android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-        val forceLandscapeMobile = intent.getBooleanExtra(
-            PortraitLiveGuideActivity.EXTRA_FORCE_PLAYER_LANDSCAPE,
-            false,
-        )
         requestedOrientation = when {
             isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            forceLandscapeMobile -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
         }
         

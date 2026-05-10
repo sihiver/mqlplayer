@@ -54,9 +54,6 @@ class PlayerActivityNative : ComponentActivity() {
         startActivity(
             Intent(this, PlayerActivityExo::class.java).apply {
                 putExtra("CHANNEL_ID", channelId)
-                if (intent.getBooleanExtra(PortraitLiveGuideActivity.EXTRA_FORCE_PLAYER_LANDSCAPE, false)) {
-                    putExtra(PortraitLiveGuideActivity.EXTRA_FORCE_PLAYER_LANDSCAPE, true)
-                }
             }
         )
         finish()
@@ -74,13 +71,8 @@ class PlayerActivityNative : ComponentActivity() {
         val isTvDevice =
             (resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
                 Configuration.UI_MODE_TYPE_TELEVISION
-        val forceLandscapeMobile = intent.getBooleanExtra(
-            PortraitLiveGuideActivity.EXTRA_FORCE_PLAYER_LANDSCAPE,
-            false,
-        )
         requestedOrientation = when {
             isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            forceLandscapeMobile -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
         }
 

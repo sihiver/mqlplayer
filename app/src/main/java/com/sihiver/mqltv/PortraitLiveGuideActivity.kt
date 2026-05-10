@@ -19,8 +19,6 @@ class PortraitLiveGuideActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_CHANNEL_ID = "CHANNEL_ID"
-        /** Dari tombol layar penuh di mode potret: pemutar harus landscape. */
-        const val EXTRA_FORCE_PLAYER_LANDSCAPE = "force_player_landscape"
 
         fun createIntent(context: Context, channelId: Int): Intent {
             return Intent(context, PortraitLiveGuideActivity::class.java).putExtra(EXTRA_CHANNEL_ID, channelId)
@@ -51,20 +49,14 @@ class PortraitLiveGuideActivity : ComponentActivity() {
             MQLTVTheme {
                 PortraitLiveGuideScreen(
                     initialChannelId = channelId,
-                    onFullscreen = { ch ->
-                        val prefs = getSharedPreferences("video_settings", Context.MODE_PRIVATE)
-                        val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
-                        val playerIntent = when (playerType) {
-                            "VLC" -> Intent(this@PortraitLiveGuideActivity, PlayerActivityVLC::class.java)
-                            "Native" -> Intent(this@PortraitLiveGuideActivity, PlayerActivityNative::class.java)
-                            else -> Intent(this@PortraitLiveGuideActivity, PlayerActivityExo::class.java)
-                        }
-                        playerIntent.putExtra("CHANNEL_ID", ch.id)
-                        playerIntent.putExtra(EXTRA_FORCE_PLAYER_LANDSCAPE, true)
-                        startActivity(playerIntent)
-                        finish()
-                    },
                     onClose = { finish() },
+                    onInlineFullscreenChanged = { landscape ->
+                        requestedOrientation = if (landscape) {
+                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        } else {
+                            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+                        }
+                    },
                 )
             }
         }

@@ -46,7 +46,7 @@
             android:exported="false"
             android:hardwareAccelerated="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
-            android:screenOrientation="userPortrait"
+            android:screenOrientation="unspecified"
             android:launchMode="singleTop" />
 
         <activity
