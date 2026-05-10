@@ -1,6 +1,8 @@
 package com.sihiver.mqltv
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
@@ -65,6 +67,13 @@ class PlayerActivityNative : ComponentActivity() {
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        val isTvDevice =
+            (resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+                Configuration.UI_MODE_TYPE_TELEVISION
+        if (!isTvDevice) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+        }
 
         if (!AuthRepository.isLoggedIn(this)) {
             startActivity(Intent(this, LoginActivity::class.java))

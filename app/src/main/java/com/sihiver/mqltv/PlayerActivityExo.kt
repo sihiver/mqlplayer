@@ -287,12 +287,19 @@ class PlayerActivityExo : ComponentActivity() {
             }
         }
         
-        // Apply orientation based on settings
-        requestedOrientation = when (orientationSetting) {
-            "Portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            "Landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            "Auto" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        // HP/tablet (bukan TV): pemutaran layar penuh mode potret; TV ikut pengaturan orientasi.
+        val isTvDevice =
+            (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
+                android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+        requestedOrientation = if (!isTvDevice) {
+            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+        } else {
+            when (orientationSetting) {
+                "Portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                "Landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                "Auto" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
         }
         
         // Keep screen on during playback

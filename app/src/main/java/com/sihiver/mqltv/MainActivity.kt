@@ -299,20 +299,22 @@ class MainActivity : ComponentActivity() {
                             0 -> LiveChannelsScreen(
                                 onChannelClick = { channel ->
                                     try {
-                                        // Add to recently watched before playing
                                         ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
-
-                                        // Check which player to use from settings
-                                        val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
-                                        val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
-
-                                        val intent = when (playerType) {
-                                            "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
-                                            "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
-                                            else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                        if (!isTvDevice) {
+                                            startActivity(
+                                                PortraitLiveGuideActivity.createIntent(this@MainActivity, channel.id)
+                                            )
+                                        } else {
+                                            val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
+                                            val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+                                            val intent = when (playerType) {
+                                                "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                                "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
+                                                else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                            }
+                                            intent.putExtra("CHANNEL_ID", channel.id)
+                                            startActivity(intent)
                                         }
-                                        intent.putExtra("CHANNEL_ID", channel.id)
-                                        startActivity(intent)
                                     } catch (e: Exception) {
                                         android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
                                     }
@@ -1651,7 +1653,7 @@ fun LiveChannelsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Material3Text(
-                text = "Semua Saluran",
+                text = "MQL TV",
                 fontSize = if (isTv) 32.sp else 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White

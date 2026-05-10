@@ -317,11 +317,18 @@ class PlayerActivityVLC : ComponentActivity() {
     }
 
     private fun applyRequestedOrientation(setting: String) {
-        requestedOrientation = when (setting) {
-            "Portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            "Landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            "Auto" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        val isTvDevice =
+            (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
+                android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+        requestedOrientation = if (!isTvDevice) {
+            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+        } else {
+            when (setting) {
+                "Portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                "Landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                "Auto" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
         }
     }
 
