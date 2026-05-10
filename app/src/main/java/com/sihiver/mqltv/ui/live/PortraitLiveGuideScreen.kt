@@ -168,7 +168,7 @@ private fun PortraitLiveGuideVideoPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = {
@@ -176,30 +176,6 @@ private fun PortraitLiveGuideVideoPanel(
                     onClose()
                 }) {
                     Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color.White)
-                }
-                IconButton(
-                    enabled = playingChannel != null,
-                    onClick = {
-                        val ch = playingChannel ?: return@IconButton
-                        onIdleBump()
-                        ChannelRepository.addToRecentlyWatched(context, ch.id)
-                        ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
-                        onToggleInlineFullscreen()
-                    }
-                ) {
-                    Icon(
-                        imageVector = if (isInlineVideoFullscreen) {
-                            Icons.Default.FullscreenExit
-                        } else {
-                            Icons.Default.Fullscreen
-                        },
-                        contentDescription = if (isInlineVideoFullscreen) {
-                            "Keluar layar penuh"
-                        } else {
-                            "Layar penuh"
-                        },
-                        tint = Color.White
-                    )
                 }
             }
         }
@@ -210,24 +186,76 @@ private fun PortraitLiveGuideVideoPanel(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.BottomStart),
         ) {
-            Row(
-                modifier = Modifier.padding(start = 12.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color(0xB0000000))
+                        )
+                    )
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
-                Box(
+                LinearProgressIndicator(
+                    progress = { 0.35f },
                     modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFE50914))
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .height(3.dp),
+                    color = Color(0xFF00D4AA),
+                    trackColor = Color(0x55FFFFFF),
                 )
-                Material3Text(
-                    text = "LIVE",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFE50914))
+                        )
+                        Material3Text(
+                            text = "LIVE",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    IconButton(
+                        enabled = playingChannel != null,
+                        onClick = {
+                            val ch = playingChannel ?: return@IconButton
+                            onIdleBump()
+                            ChannelRepository.addToRecentlyWatched(context, ch.id)
+                            ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
+                            onToggleInlineFullscreen()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isInlineVideoFullscreen) {
+                                Icons.Default.FullscreenExit
+                            } else {
+                                Icons.Default.Fullscreen
+                            },
+                            contentDescription = if (isInlineVideoFullscreen) {
+                                "Keluar layar penuh"
+                            } else {
+                                "Layar penuh"
+                            },
+                            tint = Color.White
+                        )
+                    }
+                }
             }
         }
     }
