@@ -242,7 +242,7 @@ class PlayerActivityExo : ComponentActivity() {
         if (typed == null || typed <= 0) return
 
         ChannelRepository.loadChannels(this)
-        val channels = ChannelRepository.getAllChannels()
+        val channels = ChannelRepository.getChannelsOrderedForActiveLiveTab(this)
         val index = typed - 1
         if (index !in channels.indices) {
             android.widget.Toast.makeText(this, "Channel $typed tidak ada", android.widget.Toast.LENGTH_SHORT).show()
@@ -808,7 +808,7 @@ class PlayerActivityExo : ComponentActivity() {
     }
     
     private fun switchToNextChannel(previous: Boolean) {
-        val channels = ChannelRepository.getAllChannels()
+        val channels = ChannelRepository.getChannelsOrderedForActiveLiveTab(this)
         if (channels.isEmpty()) return
         
         val currentIndex = channels.indexOfFirst { it.id == channelId }
@@ -826,7 +826,8 @@ class PlayerActivityExo : ComponentActivity() {
     private fun switchChannel(channel: Channel) {
         try {
             channelId = channel.id
-            currentChannelIndex.value = ChannelRepository.getAllChannels().indexOfFirst { it.id == channelId }
+            currentChannelIndex.value =
+                ChannelRepository.getChannelsOrderedForActiveLiveTab(this).indexOfFirst { it.id == channelId }
             
             android.util.Log.d("PlayerActivityExo", "Switching to channel: ${channel.name}, URL: ${channel.url}")
             

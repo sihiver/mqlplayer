@@ -269,7 +269,7 @@ class PlayerActivityVLC : ComponentActivity() {
         if (typed == null || typed <= 0) return
 
         ChannelRepository.loadChannels(this)
-        val channels = ChannelRepository.getAllChannels()
+        val channels = ChannelRepository.getChannelsOrderedForActiveLiveTab(this)
         val index = typed - 1
         if (index !in channels.indices) {
             android.widget.Toast.makeText(this, "Channel $typed tidak ada", android.widget.Toast.LENGTH_SHORT).show()
@@ -843,16 +843,18 @@ class PlayerActivityVLC : ComponentActivity() {
 
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
 
-        val allChannels = ChannelRepository.getAllChannels()
-        val currentIndex = allChannels.indexOfFirst { it.id == channelId }
+        val orderedChannels = ChannelRepository.getChannelsOrderedForActiveLiveTab(this)
+        val currentIndex = orderedChannels.indexOfFirst { it.id == channelId }
 
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
-                if (currentIndex > 0) playChannel(allChannels[currentIndex - 1])
+                if (currentIndex > 0) playChannel(orderedChannels[currentIndex - 1])
                 return true
             }
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
-                if (currentIndex >= 0 && currentIndex < allChannels.size - 1) playChannel(allChannels[currentIndex + 1])
+                if (currentIndex >= 0 && currentIndex < orderedChannels.size - 1) {
+                    playChannel(orderedChannels[currentIndex + 1])
+                }
                 return true
             }
         }

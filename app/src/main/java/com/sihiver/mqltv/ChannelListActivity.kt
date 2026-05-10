@@ -143,6 +143,7 @@ class ChannelListActivity : ComponentActivity() {
         }
 
         ChannelRepository.setPendingLiveGridCategoryTab(this, tabKey)
+        ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(this, tabKey)
         setResult(
             RESULT_OK,
             Intent().putExtra(EXTRA_SELECTED_CHANNEL_ID, channel.id),

@@ -189,11 +189,23 @@ object ChannelRepository {
             .edit().putString(KEY_LAST_LIVE_GRID_TAB_FOR_PLAYER, liveScreenSelectedCategory).apply()
     }
 
-    private fun consumeLastLiveGridTabWhenOpeningPlayer(context: Context): String? {
-        val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
-        val v = prefs.getString(KEY_LAST_LIVE_GRID_TAB_FOR_PLAYER, null) ?: return null
-        prefs.edit().remove(KEY_LAST_LIVE_GRID_TAB_FOR_PLAYER).apply()
-        return v
+    /** Tab Live terakhir saat buka player (tidak dihapus — dipakai zapping/nomor channel). */
+    fun peekLastLiveGridTabWhenOpeningPlayer(context: Context): String? {
+        return context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_LIVE_GRID_TAB_FOR_PLAYER, null)
+    }
+
+    /**
+     * Urutan channel untuk input nomor & CH± di player — sama dengan grid Live untuk tab terakhir
+     * (dari grid atau setelah pilih channel dari overlay).
+     */
+    fun getChannelsOrderedForActiveLiveTab(context: Context): List<Channel> {
+        val all = getAllChannels()
+        val tab = peekLastLiveGridTabWhenOpeningPlayer(context)?.trim().orEmpty()
+        if (tab.isEmpty() || tab.equals("ALL_CHANNELS", ignoreCase = true)) {
+            return sortLiveChannelsLocalSportsFirst(all)
+        }
+        return all.filter { it.category.trim().equals(tab, ignoreCase = true) }
     }
 
     /** Keys overlay ChannelListActivity (sama urutan/kategori dengan PlayerChannelListOverlay). */
@@ -232,7 +244,7 @@ object ChannelRepository {
      */
     fun resolveInitialChannelListOverlayCategory(context: Context, channelId: Int): String {
         val keys = getChannelListOverlayCategoryKeys()
-        val lastLive = consumeLastLiveGridTabWhenOpeningPlayer(context)?.trim().orEmpty()
+        val lastLive = peekLastLiveGridTabWhenOpeningPlayer(context)?.trim().orEmpty()
 
         if (lastLive.isNotEmpty()) {
             if (lastLive.equals("ALL_CHANNELS", ignoreCase = true)) {
