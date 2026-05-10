@@ -27,7 +27,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Refresh
@@ -132,7 +131,6 @@ private fun PortraitLiveGuideVideoPanel(
     onIdleBump: () -> Unit,
     selectedCategory: String,
     context: Context,
-    onClose: () -> Unit,
     isInlineVideoFullscreen: Boolean,
     onToggleInlineFullscreen: () -> Unit,
 ) {
@@ -156,28 +154,6 @@ private fun PortraitLiveGuideVideoPanel(
                         onClick = onRevealChrome,
                     )
             )
-        }
-
-        androidx.compose.animation.AnimatedVisibility(
-            visible = videoChromeVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.Start,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = {
-                    onIdleBump()
-                    onClose()
-                }) {
-                    Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color.White)
-                }
-            }
         }
 
         androidx.compose.animation.AnimatedVisibility(
@@ -477,13 +453,6 @@ fun PortraitLiveGuideScreen(
             onIdleBump = { videoChromeIdleReset++ },
             selectedCategory = selectedCategory,
             context = context,
-            onClose = {
-                if (isInlineVideoFullscreen) {
-                    isInlineVideoFullscreen = false
-                } else {
-                    onClose()
-                }
-            },
             isInlineVideoFullscreen = isInlineVideoFullscreen,
             onToggleInlineFullscreen = { isInlineVideoFullscreen = !isInlineVideoFullscreen },
         )
