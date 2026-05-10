@@ -1514,15 +1514,6 @@ fun LiveChannelsScreen(
         ChannelRepository.getLiveScreenCategoryTabKeys()
     }
 
-    val currentTime by produceState(
-        initialValue = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
-    ) {
-        while (true) {
-            value = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
-            kotlinx.coroutines.delay(30_000)
-        }
-    }
-
     val filteredChannels = remember(channels, selectedCategory) {
         if (selectedCategory == "ALL_CHANNELS") {
             ChannelRepository.sortLiveChannelsLocalSportsFirst(channels)
@@ -1706,7 +1697,6 @@ fun LiveChannelsScreen(
                         .focusable()
                         .focusProperties {
                             left = searchActionFocusRequester
-                            right = favoritesActionFocusRequester
                         }
                         .onKeyEvent { event ->
                             if (!isTv || event.type != KeyEventType.KeyUp) return@onKeyEvent false
@@ -1761,34 +1751,6 @@ fun LiveChannelsScreen(
                     }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .size(if (isTv) 44.dp else 36.dp)
-                        .clip(CircleShape)
-                        .background(if (isFavoritesFocused) Color(0x33FFFFFF) else Color.Transparent)
-                        .focusRequester(favoritesActionFocusRequester)
-                        .onFocusChanged { isFavoritesFocused = it.isFocused }
-                        .onTvHeaderNavigateDownToActiveTab(isTv, focusSelectedCategoryTabAndScroll)
-                        .focusable()
-                        .focusProperties {
-                            left = refreshActionFocusRequester
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = "Favorites",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                Material3Text(
-                    text = currentTime,
-                    color = Color.White,
-                    fontSize = if (isTv) 20.sp else 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
             }
         }
 
@@ -2480,18 +2442,6 @@ fun ChannelCardCompact(
                         .background(Color.White.copy(alpha = 0.1f))
                 )
             }
-            
-            // Favorite heart icon (top-left) - clickable
-            Icon(
-                imageVector = Icons.Default.Favorite,
-                contentDescription = "Favorite",
-                tint = if (isFavorite) Color(0xFFE50914) else Color.White.copy(alpha = 0.7f),
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp)
-                    .size(20.dp)
-                    .clickable { onFavoriteClick() }
-            )
             
             // Channel name overlay (bottom)
             Box(
