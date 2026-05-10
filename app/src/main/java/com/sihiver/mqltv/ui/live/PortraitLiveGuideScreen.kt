@@ -1,6 +1,7 @@
 package com.sihiver.mqltv.ui.live
 
 import android.content.Context
+import androidx.annotation.OptIn
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -613,6 +615,7 @@ fun PortraitLiveGuideScreen(
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun PortraitInlinePlayer(
     channel: Channel?,
