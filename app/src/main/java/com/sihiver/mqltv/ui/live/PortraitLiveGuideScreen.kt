@@ -2,6 +2,8 @@ package com.sihiver.mqltv.ui.live
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,8 +20,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -112,6 +116,108 @@ private fun resolveInitialLiveCategory(context: Context): String {
     return keys.find { it.equals(peek, ignoreCase = true) } ?: "ALL_CHANNELS"
 }
 
+/** Panel video dipisah dari [Column] induk agar [androidx.compose.animation.AnimatedVisibility] tidak bentrok dengan `ColumnScope.AnimatedVisibility`. */
+@Composable
+private fun PortraitLiveGuideVideoPanel(
+    playingChannel: Channel?,
+    presenceManager: PresenceManager,
+    accelerationSetting: String,
+    videoChromeVisible: Boolean,
+    onRevealChrome: () -> Unit,
+    onIdleBump: () -> Unit,
+    selectedCategory: String,
+    context: Context,
+    onClose: () -> Unit,
+    onFullscreen: (Channel) -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .background(Color.Black)
+    ) {
+        PortraitInlinePlayer(
+            channel = playingChannel,
+            presenceManager = presenceManager,
+            accelerationSetting = accelerationSetting,
+        )
+
+        val tapSurfaceInteraction = remember { MutableInteractionSource() }
+        if (!videoChromeVisible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        indication = null,
+                        interactionSource = tapSurfaceInteraction,
+                        onClick = onRevealChrome,
+                    )
+            )
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = videoChromeVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = {
+                    onIdleBump()
+                    onClose()
+                }) {
+                    Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color.White)
+                }
+                IconButton(
+                    enabled = playingChannel != null,
+                    onClick = {
+                        val ch = playingChannel ?: return@IconButton
+                        onIdleBump()
+                        ChannelRepository.addToRecentlyWatched(context, ch.id)
+                        ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
+                        onFullscreen(ch)
+                    }
+                ) {
+                    Icon(Icons.Default.Fullscreen, contentDescription = "Layar penuh", tint = Color.White)
+                }
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = videoChromeVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomStart),
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 12.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFE50914))
+                )
+                Material3Text(
+                    text = "LIVE",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+            }
+        }
+    }
+}
+
 /**
  * Halaman potret: video di atas, info channel, panduan daftar + filter (desain seperti referensi Hulu mobile).
  */
@@ -143,6 +249,10 @@ fun PortraitLiveGuideScreen(
     var searchResultsTitle by remember { mutableStateOf("Search") }
     var isRefreshing by remember { mutableStateOf(false) }
     var guideFilterMenuExpanded by remember { mutableStateOf(false) }
+
+    /** Overlay video (tutup / LIVE): tampil otomatis hilang; ketuk area video untuk tampil lagi. */
+    var videoChromeVisible by remember { mutableStateOf(true) }
+    var videoChromeIdleReset by remember { mutableStateOf(0) }
 
     var selectedCategory by remember { mutableStateOf(resolveInitialLiveCategory(context)) }
     var playingChannel by remember {
@@ -176,6 +286,17 @@ fun PortraitLiveGuideScreen(
         } else {
             channels.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
         }
+    }
+
+    LaunchedEffect(videoChromeVisible, videoChromeIdleReset) {
+        if (!videoChromeVisible) return@LaunchedEffect
+        kotlinx.coroutines.delay(4_000)
+        videoChromeVisible = false
+    }
+
+    LaunchedEffect(playingChannel?.id) {
+        videoChromeVisible = true
+        videoChromeIdleReset++
     }
 
     LaunchedEffect(filteredChannels, initialChannelId) {
@@ -280,64 +401,21 @@ fun PortraitLiveGuideScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        // Video lebar penuh rasio 16:9 (tanpa header atas)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .background(Color.Black)
-        ) {
-            PortraitInlinePlayer(
-                channel = playingChannel,
-                presenceManager = presenceManager,
-                accelerationSetting = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
-            )
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color.White)
-                }
-                IconButton(
-                    enabled = playingChannel != null,
-                    onClick = {
-                        val ch = playingChannel ?: return@IconButton
-                        ChannelRepository.addToRecentlyWatched(context, ch.id)
-                        ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
-                        onFullscreen(ch)
-                    }
-                ) {
-                    Icon(Icons.Default.Fullscreen, contentDescription = "Layar penuh", tint = Color.White)
-                }
-            }
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(12.dp)
-            ) {
-                Material3Text(
-                    "MENONTON LIVE",
-                    color = Color(0xFF00D4AA),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .padding(top = 6.dp),
-                    progress = { 1f },
-                    color = Color(0xFF00D4AA),
-                    trackColor = Color(0x33FFFFFF),
-                )
-            }
-        }
+        PortraitLiveGuideVideoPanel(
+            playingChannel = playingChannel,
+            presenceManager = presenceManager,
+            accelerationSetting = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)",
+            videoChromeVisible = videoChromeVisible,
+            onRevealChrome = {
+                videoChromeVisible = true
+                videoChromeIdleReset++
+            },
+            onIdleBump = { videoChromeIdleReset++ },
+            selectedCategory = selectedCategory,
+            context = context,
+            onClose = onClose,
+            onFullscreen = onFullscreen,
+        )
 
         playingChannel?.let { current ->
             Row(
