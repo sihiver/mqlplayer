@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -66,8 +67,6 @@ import com.sihiver.mqltv.playback.LiveExoPlayerFactory
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.service.PresenceManager
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 private val PortraitLiveBackgroundBrush = Brush.verticalGradient(
@@ -143,6 +142,7 @@ fun PortraitLiveGuideScreen(
     var searchResults by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var searchResultsTitle by remember { mutableStateOf("Search") }
     var isRefreshing by remember { mutableStateOf(false) }
+    var guideFilterMenuExpanded by remember { mutableStateOf(false) }
 
     var selectedCategory by remember { mutableStateOf(resolveInitialLiveCategory(context)) }
     var playingChannel by remember {
@@ -186,15 +186,6 @@ fun PortraitLiveGuideScreen(
             playingChannel = filteredChannels.firstOrNull()
         } else if (playingChannel == null && filteredChannels.isNotEmpty()) {
             playingChannel = filteredChannels.first()
-        }
-    }
-
-    val currentTime by androidx.compose.runtime.produceState(
-        initialValue = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
-    ) {
-        while (true) {
-            value = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
-            kotlinx.coroutines.delay(30_000)
         }
     }
 
@@ -289,110 +280,62 @@ fun PortraitLiveGuideScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        Row(
+        // Video lebar penuh rasio 16:9 (tanpa header atas)
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Material3Text(
-                text = "MQL TV",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = { showSearchDialog = true }) {
-                    Icon(Icons.Default.Search, contentDescription = "Cari", tint = Color.White)
-                }
-                IconButton(
-                    onClick = {
-                        if (isRefreshing) return@IconButton
-                        isRefreshing = true
-                        scope.launch {
-                            try {
-                                ChannelRepository.getPlaylistUrls(context).forEach { url ->
-                                    ChannelRepository.refreshPlaylistFromServer(context, url)
-                                }
-                                refreshKey++
-                            } finally {
-                                isRefreshing = false
-                            }
-                        }
-                    }
-                ) {
-                    if (isRefreshing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
-                    }
-                }
-                Material3Text(currentTime, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.38f)
-                .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
+                .aspectRatio(16f / 9f)
                 .background(Color.Black)
         ) {
-            Box(modifier = Modifier.weight(1f)) {
-                PortraitInlinePlayer(
-                    channel = playingChannel,
-                    presenceManager = presenceManager,
-                    accelerationSetting = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
+            PortraitInlinePlayer(
+                channel = playingChannel,
+                presenceManager = presenceManager,
+                accelerationSetting = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
+            )
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color.White)
+                }
+                IconButton(
+                    enabled = playingChannel != null,
+                    onClick = {
+                        val ch = playingChannel ?: return@IconButton
+                        ChannelRepository.addToRecentlyWatched(context, ch.id)
+                        ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
+                        onFullscreen(ch)
+                    }
+                ) {
+                    Icon(Icons.Default.Fullscreen, contentDescription = "Layar penuh", tint = Color.White)
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(12.dp)
+            ) {
+                Material3Text(
+                    "MENONTON LIVE",
+                    color = Color(0xFF00D4AA),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
                 )
-                Row(
+                LinearProgressIndicator(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color.White)
-                    }
-                    IconButton(
-                        enabled = playingChannel != null,
-                        onClick = {
-                            val ch = playingChannel ?: return@IconButton
-                            ChannelRepository.addToRecentlyWatched(context, ch.id)
-                            ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
-                            onFullscreen(ch)
-                        }
-                    ) {
-                        Icon(Icons.Default.Fullscreen, contentDescription = "Layar penuh", tint = Color.White)
-                    }
-                }
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(12.dp)
-                ) {
-                    Material3Text(
-                        "MENONTON LIVE",
-                        color = Color(0xFF00D4AA),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(3.dp)
-                            .padding(top = 6.dp),
-                        progress = { 1f },
-                        color = Color(0xFF00D4AA),
-                        trackColor = Color(0x33FFFFFF),
-                    )
-                }
+                        .height(3.dp)
+                        .padding(top = 6.dp),
+                    progress = { 1f },
+                    color = Color(0xFF00D4AA),
+                    trackColor = Color(0x33FFFFFF),
+                )
             }
         }
 
@@ -453,7 +396,7 @@ fun PortraitLiveGuideScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -463,29 +406,62 @@ fun PortraitLiveGuideScreen(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
-            var filterMenuExpanded by remember { mutableStateOf(false) }
-            Box {
-                OutlinedButton(onClick = { filterMenuExpanded = true }) {
-                    Material3Text(
-                        portraitCategoryLabel(selectedCategory),
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { showSearchDialog = true }) {
+                    Icon(Icons.Default.Search, contentDescription = "Cari", tint = Color.White)
                 }
-                DropdownMenu(
-                    expanded = filterMenuExpanded,
-                    onDismissRequest = { filterMenuExpanded = false }
-                ) {
-                    categoryTabs.forEach { cat ->
-                        DropdownMenuItem(
-                            text = { Material3Text(portraitCategoryLabel(cat)) },
-                            onClick = {
-                                selectedCategory = cat
-                                filterMenuExpanded = false
+                IconButton(
+                    onClick = {
+                        if (isRefreshing) return@IconButton
+                        isRefreshing = true
+                        scope.launch {
+                            try {
+                                ChannelRepository.getPlaylistUrls(context).forEach { url ->
+                                    ChannelRepository.refreshPlaylistFromServer(context, url)
+                                }
+                                refreshKey++
+                            } finally {
+                                isRefreshing = false
                             }
+                        }
+                    }
+                ) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
                         )
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White)
+                    }
+                }
+                Box {
+                    OutlinedButton(onClick = { guideFilterMenuExpanded = true }) {
+                        Material3Text(
+                            portraitCategoryLabel(selectedCategory),
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = guideFilterMenuExpanded,
+                        onDismissRequest = { guideFilterMenuExpanded = false }
+                    ) {
+                        categoryTabs.forEach { cat ->
+                            DropdownMenuItem(
+                                text = { Material3Text(portraitCategoryLabel(cat)) },
+                                onClick = {
+                                    selectedCategory = cat
+                                    guideFilterMenuExpanded = false
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -528,6 +504,7 @@ private fun PortraitInlinePlayer(
         PlayerView(context).apply {
             useController = false
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            keepScreenOn = true
         }
     }
 
