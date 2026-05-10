@@ -18,8 +18,6 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -2141,13 +2139,11 @@ private fun LiveChannelGridCard(
 @Composable
 fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
     val context = LocalContext.current
+    val isTv = LocalIsTvMode.current
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
-    var refreshKey by remember { mutableStateOf(0) }
     val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
-    var showAll by remember { mutableStateOf(false) }
 
-    // Refresh channels
-    LaunchedEffect(refreshKey, channelsRevision) {
+    LaunchedEffect(channelsRevision) {
         ChannelRepository.loadChannels(context)
         ChannelRepository.loadRecentlyWatched(context)
         ChannelRepository.loadFavorites(context)
@@ -2158,80 +2154,71 @@ fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
         channels.filter { it.category.contains("movie", ignoreCase = true) }
     }
 
-    if (showAll) {
-        FullChannelListScreen(
-            title = "MOVIES",
-            channels = movieChannels,
-            onChannelClick = onChannelClick,
-            onBack = { showAll = false }
-        )
-        return
-    }
+    val gridColumns = if (isTv) 6 else 3
+    val subtitleMuted = Color(0xFFD6E3FF)
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AppGlobalBackgroundBrush)
             .statusBarsPadding()
     ) {
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Material3Text(
-                    text = "MOVIES",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                if (movieChannels.isNotEmpty()) {
-                    TextButton(onClick = { showAll = true }) {
-                        Material3Text(
-                            text = "See all",
-                            fontSize = 14.sp,
-                            color = Color(0xFF2196F3)
-                        )
-                    }
-                }
-            }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            Material3Text(
+                text = "MOVIES",
+                fontSize = if (isTv) 32.sp else 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Material3Text(
+                text = if (movieChannels.isEmpty()) {
+                    "Belum ada channel film"
+                } else {
+                    "${movieChannels.size} channel"
+                },
+                fontSize = if (isTv) 15.sp else 13.sp,
+                color = subtitleMuted,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
 
         if (movieChannels.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Material3Text(
-                        text = "Tidak ada channel MOVIES",
-                        color = Color.Gray,
-                        fontSize = 16.sp
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Material3Text(
+                    text = "Tidak ada channel MOVIES",
+                    color = subtitleMuted,
+                    fontSize = 16.sp
+                )
             }
         } else {
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(movieChannels.take(20)) { channel ->
-                        ChannelCardCompact(
-                            channel = channel,
-                            onClick = onChannelClick,
-                            onFavoriteClick = {
-                                ChannelRepository.toggleFavorite(context, channel.id)
-                                refreshKey++
-                            },
-                            isFavorite = ChannelRepository.isFavorite(channel.id)
-                        )
-                    }
+            LazyVerticalGrid(
+                columns = if (isTv) GridCells.Fixed(6) else GridCells.Fixed(3),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(bottom = 20.dp)
+            ) {
+                gridItemsIndexed(movieChannels) { index, channel ->
+                    val isFirstGridRow = index < gridColumns
+                    LiveChannelGridCard(
+                        channel = channel,
+                        channelNumber = index + 1,
+                        onClick = onChannelClick,
+                        onNavigateUpFromFirstRow = null,
+                        isFirstGridRow = isFirstGridRow,
+                    )
                 }
             }
         }
@@ -2245,50 +2232,63 @@ fun FullChannelListScreen(
     onChannelClick: (Channel) -> Unit,
     onBack: () -> Unit
 ) {
+    val isTv = LocalIsTvMode.current
+    val gridColumns = if (isTv) 6 else 3
+    val subtitleMuted = Color(0xFFD6E3FF)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(AppGlobalBackgroundBrush)
             .statusBarsPadding()
     ) {
-        // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Material3Text(
                 text = "‹",
-                fontSize = 32.sp,
+                fontSize = if (isTv) 36.sp else 32.sp,
                 color = Color.White,
                 modifier = Modifier
                     .clickable { onBack() }
-                    .padding(end = 16.dp)
+                    .padding(end = 12.dp)
             )
             Column {
                 Material3Text(
                     text = title,
-                    fontSize = 24.sp,
+                    fontSize = if (isTv) 28.sp else 22.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
                 Material3Text(
-                    text = "${channels.size} channels",
+                    text = "${channels.size} channel",
                     fontSize = 14.sp,
-                    color = Color.Gray
+                    color = subtitleMuted
                 )
             }
         }
-        
-        // Grid of channels
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+
+        LazyVerticalGrid(
+            columns = if (isTv) GridCells.Fixed(6) else GridCells.Fixed(3),
+            modifier = Modifier
+                .fillMaxSize()
+                .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp)
         ) {
-            items(channels) { channel ->
-                ChannelListItem(channel, onChannelClick)
+            gridItemsIndexed(channels) { index, channel ->
+                val isFirstGridRow = index < gridColumns
+                LiveChannelGridCard(
+                    channel = channel,
+                    channelNumber = index + 1,
+                    onClick = onChannelClick,
+                    onNavigateUpFromFirstRow = null,
+                    isFirstGridRow = isFirstGridRow,
+                )
             }
         }
     }
