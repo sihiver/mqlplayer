@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.live.PortraitLiveGuideScreen
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
@@ -56,9 +59,24 @@ class PortraitLiveGuideActivity : ComponentActivity() {
                         } else {
                             ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
                         }
+                        applyPortraitGuideSystemUi(landscape)
                     },
                 )
             }
+        }
+
+        applyPortraitGuideSystemUi(fullscreenLandscape = false)
+    }
+
+    private fun applyPortraitGuideSystemUi(fullscreenLandscape: Boolean) {
+        WindowCompat.setDecorFitsSystemWindows(window, !fullscreenLandscape)
+        val controller = WindowCompat.getInsetsController(window, window.decorView) ?: return
+        if (fullscreenLandscape) {
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(WindowInsetsCompat.Type.statusBars())
         }
     }
 
