@@ -1504,7 +1504,7 @@ fun LiveChannelsScreen(
             .filter { it.isNotBlank() }
             .distinctBy { it.lowercase() }
 
-        listOf("ALL_CHANNELS") + all
+        listOf("ALL_CHANNELS") + prioritizeLiveCategoryTabs(all)
     }
 
     val currentTime by produceState(
@@ -1518,7 +1518,7 @@ fun LiveChannelsScreen(
 
     val filteredChannels = remember(channels, selectedCategory) {
         if (selectedCategory == "ALL_CHANNELS") {
-            channels
+            sortLiveChannelsLocalSportsFirst(channels)
         } else {
             channels.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
         }
@@ -1998,6 +1998,37 @@ private fun Modifier.onTvHeaderNavigateDownToActiveTab(
             else -> false
         }
     }
+}
+
+/** Grid "All Channels": channel Local lalu Sports di atas, lainnya mengikuti urutan playlist. */
+private fun sortLiveChannelsLocalSportsFirst(channels: List<Channel>): List<Channel> {
+    fun catEq(ch: Channel, name: String) = ch.category.trim().equals(name, ignoreCase = true)
+    val local = channels.filter { catEq(it, "Local") }
+    val sports = channels.filter { catEq(it, "Sports") }
+    val takenIds = (local + sports).map { it.id }.toSet()
+    val rest = channels.filter { it.id !in takenIds }
+    return local + sports + rest
+}
+
+/** Tab Live: Local & Sports tampil lebih dulu (setelah All Channels), lalu kategori lain alfabetis. */
+private fun prioritizeLiveCategoryTabs(categories: List<String>): List<String> {
+    val priorityLabels = listOf("Local", "Sports")
+    val usedLower = mutableSetOf<String>()
+    val prioritized = mutableListOf<String>()
+    for (label in priorityLabels) {
+        val match = categories.firstOrNull { it.equals(label, ignoreCase = true) }
+        if (match != null) {
+            val key = match.lowercase(Locale.getDefault())
+            if (key !in usedLower) {
+                usedLower.add(key)
+                prioritized.add(match)
+            }
+        }
+    }
+    val rest = categories
+        .filter { it.lowercase(Locale.getDefault()) !in usedLower }
+        .sortedBy { it.lowercase(Locale.getDefault()) }
+    return prioritized + rest
 }
 
 private fun formatLiveCategoryTabLabel(rawCategory: String): String {
