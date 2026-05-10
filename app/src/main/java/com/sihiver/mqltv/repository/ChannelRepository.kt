@@ -11,6 +11,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.Locale
 
 object ChannelRepository {
     
@@ -25,6 +26,8 @@ object ChannelRepository {
     private const val PREFS_APP = "mqltv_prefs"
     private const val KEY_PLAYLIST_URL_LEGACY = "playlist_url"
     private const val KEY_PLAYLIST_URLS = "playlist_urls"
+    private const val KEY_PENDING_LIVE_GRID_CATEGORY_TAB = "pending_live_grid_category_tab"
+    private const val KEY_LAST_LIVE_GRID_TAB_FOR_PLAYER = "last_live_grid_tab_for_player"
 
     // Default embedded playlist URL (always kept unless user clears samples).
     private const val DEFAULT_SAMPLE_PLAYLIST_URL = "http://192.168.15.1:5140/playlist.m3u"
@@ -112,6 +115,148 @@ object ChannelRepository {
     
     fun getAllCategories(): List<String> {
         return getCategories().filter { it.isNotEmpty() }
+    }
+
+    /** Urutan tab Live: Local & Sports dulu, lalu alfabet (tanpa movie). */
+    private fun prioritizeLiveCategoryTabOrder(categories: List<String>): List<String> {
+        val priorityLabels = listOf("Local", "Sports")
+        val usedLower = mutableSetOf<String>()
+        val prioritized = mutableListOf<String>()
+        for (label in priorityLabels) {
+            val match = categories.firstOrNull { it.equals(label, ignoreCase = true) }
+            if (match != null) {
+                val key = match.lowercase(Locale.getDefault())
+                if (key !in usedLower) {
+                    usedLower.add(key)
+                    prioritized.add(match)
+                }
+            }
+        }
+        val rest = categories
+            .filter { it.lowercase(Locale.getDefault()) !in usedLower }
+            .sortedBy { it.lowercase(Locale.getDefault()) }
+        return prioritized + rest
+    }
+
+    /** Daftar key tab Live (ALL_CHANNELS + kategori), sama dengan LiveChannelsScreen. */
+    fun getLiveScreenCategoryTabKeys(): List<String> {
+        val all = getAllCategories()
+            .filterNot { it.contains("movie", ignoreCase = true) }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase(Locale.getDefault()) }
+        return listOf("ALL_CHANNELS") + prioritizeLiveCategoryTabOrder(all)
+    }
+
+    /** Tab Live yang sesuai kategori channel (ALL_CHANNELS jika tidak ada match). */
+    fun resolveLiveScreenCategoryTabForChannel(channel: Channel): String {
+        val tabs = getLiveScreenCategoryTabKeys()
+        val c = channel.category.trim()
+        if (c.isEmpty()) return "ALL_CHANNELS"
+        val match = tabs.find { it != "ALL_CHANNELS" && it.equals(c, ignoreCase = true) }
+        return match ?: "ALL_CHANNELS"
+    }
+
+    /** Grid All Channels: Local → Sports → sisanya (selaras overlay pemutar). */
+    fun sortLiveChannelsLocalSportsFirst(channels: List<Channel>): List<Channel> {
+        fun catEq(ch: Channel, name: String) = ch.category.trim().equals(name, ignoreCase = true)
+        val local = channels.filter { catEq(it, "Local") }
+        val sports = channels.filter { catEq(it, "Sports") }
+        val takenIds = (local + sports).map { it.id }.toSet()
+        val rest = channels.filter { it.id !in takenIds }
+        return local + sports + rest
+    }
+
+    /** Dipanggil dari ChannelListActivity saat user memilih channel — sinkron tab Live. */
+    fun setPendingLiveGridCategoryTab(context: Context, categoryTabKey: String) {
+        context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+            .edit().putString(KEY_PENDING_LIVE_GRID_CATEGORY_TAB, categoryTabKey).apply()
+    }
+
+    fun peekPendingLiveGridCategoryTab(context: Context): String? {
+        return context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+            .getString(KEY_PENDING_LIVE_GRID_CATEGORY_TAB, null)
+    }
+
+    fun clearPendingLiveGridCategoryTab(context: Context) {
+        context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+            .edit().remove(KEY_PENDING_LIVE_GRID_CATEGORY_TAB).apply()
+    }
+
+    /** Tab Live yang aktif saat user tap channel mem-buka player — dipakai ChannelListActivity overlay. */
+    fun setLastLiveGridTabWhenOpeningPlayer(context: Context, liveScreenSelectedCategory: String) {
+        context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+            .edit().putString(KEY_LAST_LIVE_GRID_TAB_FOR_PLAYER, liveScreenSelectedCategory).apply()
+    }
+
+    private fun consumeLastLiveGridTabWhenOpeningPlayer(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+        val v = prefs.getString(KEY_LAST_LIVE_GRID_TAB_FOR_PLAYER, null) ?: return null
+        prefs.edit().remove(KEY_LAST_LIVE_GRID_TAB_FOR_PLAYER).apply()
+        return v
+    }
+
+    /** Keys overlay ChannelListActivity (sama urutan/kategori dengan PlayerChannelListOverlay). */
+    fun getChannelListOverlayCategoryKeys(): List<String> {
+        val allChannels = getAllChannels()
+        val categories = allChannels
+            .map { it.category.trim() }
+            .filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase(Locale.getDefault()) }
+            .filterNot { it.contains("movie", ignoreCase = true) }
+        val ordered = prioritizeLiveCategoryTabOrder(categories)
+        return buildList {
+            add("all")
+            add("favorites")
+            add("recent")
+            addAll(ordered)
+        }
+    }
+
+    fun getFilteredChannelsForOverlayCategoryKey(selectedKey: String): List<Channel> {
+        val allChannels = getAllChannels()
+        val favorites = getFavorites()
+        return when (selectedKey) {
+            "all" -> sortLiveChannelsLocalSportsFirst(allChannels)
+            "favorites" -> favorites
+            "recent" -> allChannels.take(10)
+            else -> allChannels.filter { ch ->
+                ch.category.trim().equals(selectedKey, ignoreCase = true)
+            }
+        }
+    }
+
+    /**
+     * Tab kategori overlay saat dibuka: pakai tab grid Live yang disimpan saat buka player;
+     * fallback ke group-title channel jika tidak ada.
+     */
+    fun resolveInitialChannelListOverlayCategory(context: Context, channelId: Int): String {
+        val keys = getChannelListOverlayCategoryKeys()
+        val lastLive = consumeLastLiveGridTabWhenOpeningPlayer(context)?.trim().orEmpty()
+
+        if (lastLive.isNotEmpty()) {
+            if (lastLive.equals("ALL_CHANNELS", ignoreCase = true)) {
+                return "all"
+            }
+            val fromGrid = keys.find {
+                it != "all" && it != "favorites" && it != "recent" &&
+                    it.equals(lastLive, ignoreCase = true)
+            }
+            if (fromGrid != null) return fromGrid
+        }
+
+        val ch = getChannelById(channelId) ?: return "all"
+        val cat = ch.category.trim()
+        if (cat.isEmpty()) return "all"
+        return keys.find {
+            it != "all" && it != "favorites" && it != "recent" && it.equals(cat, ignoreCase = true)
+        } ?: "all"
+    }
+
+    fun getInitialChannelListOverlayListIndex(channelId: Int, overlayCategoryKey: String): Int {
+        val filtered = getFilteredChannelsForOverlayCategoryKey(overlayCategoryKey)
+        val idx = filtered.indexOfFirst { it.id == channelId }
+        return if (idx >= 0) idx else 0
     }
     
     suspend fun importFromM3U(m3uContent: String, source: String = "paste"): Int {

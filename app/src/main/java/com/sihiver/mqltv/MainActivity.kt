@@ -1495,16 +1495,21 @@ fun LiveChannelsScreen(
         ChannelRepository.loadRecentlyWatched(context)
         ChannelRepository.loadFavorites(context)
         channels = ChannelRepository.getAllChannels()
+
+        // Terapkan setelah repo + state channel mutakhir (hindari race dengan DisposableEffect).
+        val pending = ChannelRepository.peekPendingLiveGridCategoryTab(context)
+        if (pending != null) {
+            val keys = ChannelRepository.getLiveScreenCategoryTabKeys()
+            val resolved = keys.find { it.equals(pending, ignoreCase = true) }
+            if (resolved != null) {
+                selectedCategory = resolved
+                ChannelRepository.clearPendingLiveGridCategoryTab(context)
+            }
+        }
     }
     
     val categoryTabs = remember(channels) {
-        val all = ChannelRepository.getAllCategories()
-            .filterNot { it.contains("movie", ignoreCase = true) }
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinctBy { it.lowercase() }
-
-        listOf("ALL_CHANNELS") + prioritizeLiveCategoryTabs(all)
+        ChannelRepository.getLiveScreenCategoryTabKeys()
     }
 
     val currentTime by produceState(
@@ -1518,7 +1523,7 @@ fun LiveChannelsScreen(
 
     val filteredChannels = remember(channels, selectedCategory) {
         if (selectedCategory == "ALL_CHANNELS") {
-            sortLiveChannelsLocalSportsFirst(channels)
+            ChannelRepository.sortLiveChannelsLocalSportsFirst(channels)
         } else {
             channels.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
         }
@@ -1558,11 +1563,16 @@ fun LiveChannelsScreen(
 
     val navigateUpFromFirstGridRow: () -> Unit = focusSelectedCategoryTabAndScroll
 
+    val playFromLiveGrid: (Channel) -> Unit = { ch ->
+        ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
+        onChannelClick(ch)
+    }
+
     if (showSearchResults) {
         FullChannelListScreen(
             title = searchResultsTitle,
             channels = searchResults,
-            onChannelClick = onChannelClick,
+            onChannelClick = playFromLiveGrid,
             onBack = { showSearchResults = false }
         )
         return
@@ -1861,7 +1871,7 @@ fun LiveChannelsScreen(
                                 Modifier
                             }
                         ),
-                    onClick = onChannelClick,
+                    onClick = playFromLiveGrid,
                     onNavigateUpFromFirstRow = if (isTv) navigateUpFromFirstGridRow else null,
                     isFirstGridRow = isFirstGridRow,
                     onFocused = {
@@ -1998,37 +2008,6 @@ private fun Modifier.onTvHeaderNavigateDownToActiveTab(
             else -> false
         }
     }
-}
-
-/** Grid "All Channels": channel Local lalu Sports di atas, lainnya mengikuti urutan playlist. */
-private fun sortLiveChannelsLocalSportsFirst(channels: List<Channel>): List<Channel> {
-    fun catEq(ch: Channel, name: String) = ch.category.trim().equals(name, ignoreCase = true)
-    val local = channels.filter { catEq(it, "Local") }
-    val sports = channels.filter { catEq(it, "Sports") }
-    val takenIds = (local + sports).map { it.id }.toSet()
-    val rest = channels.filter { it.id !in takenIds }
-    return local + sports + rest
-}
-
-/** Tab Live: Local & Sports tampil lebih dulu (setelah All Channels), lalu kategori lain alfabetis. */
-private fun prioritizeLiveCategoryTabs(categories: List<String>): List<String> {
-    val priorityLabels = listOf("Local", "Sports")
-    val usedLower = mutableSetOf<String>()
-    val prioritized = mutableListOf<String>()
-    for (label in priorityLabels) {
-        val match = categories.firstOrNull { it.equals(label, ignoreCase = true) }
-        if (match != null) {
-            val key = match.lowercase(Locale.getDefault())
-            if (key !in usedLower) {
-                usedLower.add(key)
-                prioritized.add(match)
-            }
-        }
-    }
-    val rest = categories
-        .filter { it.lowercase(Locale.getDefault()) !in usedLower }
-        .sortedBy { it.lowercase(Locale.getDefault()) }
-    return prioritized + rest
 }
 
 private fun formatLiveCategoryTabLabel(rawCategory: String): String {

@@ -77,9 +77,10 @@ class ChannelListActivity : ComponentActivity() {
         ChannelRepository.loadChannels(this)
 
         currentChannelId = intent.getIntExtra(EXTRA_CURRENT_CHANNEL_ID, -1)
-        val allChannels = ChannelRepository.getAllChannels()
-        val currentIndex = allChannels.indexOfFirst { it.id == currentChannelId }
-        selectedListIndex.value = if (currentIndex >= 0) currentIndex else 0
+        val initialOverlayCat = ChannelRepository.resolveInitialChannelListOverlayCategory(this, currentChannelId)
+        selectedCategory.value = initialOverlayCat
+        selectedListIndex.value =
+            ChannelRepository.getInitialChannelListOverlayListIndex(currentChannelId, initialOverlayCat)
 
         val root = ComposeView(this).apply {
             setContent {
@@ -128,6 +129,20 @@ class ChannelListActivity : ComponentActivity() {
     }
 
     private fun returnResult(channel: Channel) {
+        ChannelRepository.loadChannels(this)
+        val liveKeys = ChannelRepository.getLiveScreenCategoryTabKeys()
+        val overlayKey = selectedCategory.value.trim()
+
+        // Utamakan tab yang sedang aktif di overlay (Local, Sports, …). Channel.category
+        // dari playlist sering tidak sama persis dengan label tab Live → jangan hanya infer dari channel.
+        val tabKey = when (overlayKey) {
+            "all" -> ChannelRepository.resolveLiveScreenCategoryTabForChannel(channel)
+            "favorites", "recent" -> ChannelRepository.resolveLiveScreenCategoryTabForChannel(channel)
+            else -> liveKeys.find { it.equals(overlayKey, ignoreCase = true) && it != "ALL_CHANNELS" }
+                ?: ChannelRepository.resolveLiveScreenCategoryTabForChannel(channel)
+        }
+
+        ChannelRepository.setPendingLiveGridCategoryTab(this, tabKey)
         setResult(
             RESULT_OK,
             Intent().putExtra(EXTRA_SELECTED_CHANNEL_ID, channel.id),
