@@ -316,19 +316,18 @@ class PlayerActivityVLC : ComponentActivity() {
         super.onPause()
     }
 
-    private fun applyRequestedOrientation(setting: String) {
+    private fun applyPlaybackOrientation() {
         val isTvDevice =
             (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
                 android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-        requestedOrientation = if (!isTvDevice) {
-            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-        } else {
-            when (setting) {
-                "Portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                "Landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                "Auto" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            }
+        val forceLandscapeMobile = intent.getBooleanExtra(
+            PortraitLiveGuideActivity.EXTRA_FORCE_PLAYER_LANDSCAPE,
+            false,
+        )
+        requestedOrientation = when {
+            isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            forceLandscapeMobile -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
         }
     }
 
@@ -440,7 +439,7 @@ class PlayerActivityVLC : ComponentActivity() {
         }
         
         val settings = readVideoSettings()
-        applyRequestedOrientation(settings.orientation)
+        applyPlaybackOrientation()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.setFlags(
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,

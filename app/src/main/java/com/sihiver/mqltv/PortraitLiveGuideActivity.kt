@@ -19,6 +19,8 @@ class PortraitLiveGuideActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_CHANNEL_ID = "CHANNEL_ID"
+        /** Dari tombol layar penuh di mode potret: pemutar harus landscape. */
+        const val EXTRA_FORCE_PLAYER_LANDSCAPE = "force_player_landscape"
 
         fun createIntent(context: Context, channelId: Int): Intent {
             return Intent(context, PortraitLiveGuideActivity::class.java).putExtra(EXTRA_CHANNEL_ID, channelId)
@@ -58,6 +60,7 @@ class PortraitLiveGuideActivity : ComponentActivity() {
                             else -> Intent(this@PortraitLiveGuideActivity, PlayerActivityExo::class.java)
                         }
                         playerIntent.putExtra("CHANNEL_ID", ch.id)
+                        playerIntent.putExtra(EXTRA_FORCE_PLAYER_LANDSCAPE, true)
                         startActivity(playerIntent)
                         finish()
                     },

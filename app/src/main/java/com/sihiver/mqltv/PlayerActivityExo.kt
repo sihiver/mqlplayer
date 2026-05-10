@@ -265,7 +265,6 @@ class PlayerActivityExo : ComponentActivity() {
         
         // Load video settings
         val prefs = getSharedPreferences("video_settings", Context.MODE_PRIVATE)
-        val orientationSetting = prefs.getString("orientation", "Sensor Landscape") ?: "Sensor Landscape"
         val accelerationSetting = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
         
         // Apply hardware acceleration based on settings
@@ -287,19 +286,18 @@ class PlayerActivityExo : ComponentActivity() {
             }
         }
         
-        // HP/tablet (bukan TV): pemutaran layar penuh mode potret; TV ikut pengaturan orientasi.
+        // TV: landscape. HP dari grid: potret. HP dari tombol layar penuh (PortraitLiveGuide): landscape.
         val isTvDevice =
             (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
                 android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-        requestedOrientation = if (!isTvDevice) {
-            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-        } else {
-            when (orientationSetting) {
-                "Portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                "Landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                "Auto" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            }
+        val forceLandscapeMobile = intent.getBooleanExtra(
+            PortraitLiveGuideActivity.EXTRA_FORCE_PLAYER_LANDSCAPE,
+            false,
+        )
+        requestedOrientation = when {
+            isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            forceLandscapeMobile -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
         }
         
         // Keep screen on during playback
