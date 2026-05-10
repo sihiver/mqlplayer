@@ -57,12 +57,13 @@ class PresenceManager(private val context: Context) {
         stopHeartbeat() // Cancel any existing heartbeat
         
         Log.d(TAG, "Starting heartbeat")
-        
-        heartbeatJob = CoroutineScope(Dispatchers.Main).launch {
+        // Heartbeat loop runs on a background dispatcher (not Main): periodic timer + network
+        // should not share the UI scheduler. Note: delay() is suspending (non-blocking), but IO
+        // is still the right default for this workload.
+        heartbeatJob = CoroutineScope(Dispatchers.IO).launch {
             while (true) {
                 delay(HEARTBEAT_INTERVAL_MS)
-                
-                // Send heartbeat with current channel info
+
                 sendPresence(
                     status = "heartbeat",
                     channelTitle = currentChannelTitle,

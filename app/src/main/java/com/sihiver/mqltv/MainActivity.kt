@@ -27,9 +27,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -568,7 +569,7 @@ class MainActivity : ComponentActivity() {
                                 label = "Live",
                                 icon = {
                                     Icon(
-                                        Icons.Default.PlayArrow,
+                                        painter = painterResource(R.drawable.ic_live_tv),
                                         contentDescription = "Live",
                                         tint = if (selectedTab == 0) Color(0xFFE50914) else Color.White
                                     )
@@ -643,7 +644,13 @@ class MainActivity : ComponentActivity() {
                                 contentColor = Color.White
                             ) {
                                 NavigationBarItem(
-                                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Live", tint = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_live_tv),
+                                            contentDescription = "Live",
+                                            tint = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray
+                                        )
+                                    },
                                     label = { Material3Text("Live", color = if (selectedTab == 0) Color(0xFFE50914) else Color.Gray) },
                                     selected = selectedTab == 0,
                                     onClick = { selectedTab = 0 }
