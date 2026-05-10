@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.Player
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -619,6 +620,7 @@ private fun PortraitInlinePlayer(
     accelerationSetting: String,
 ) {
     val context = LocalContext.current
+    var isBuffering by remember(channel?.id) { mutableStateOf(true) }
 
     val playerView = remember(context) {
         PlayerView(context).apply {
@@ -641,8 +643,28 @@ private fun PortraitInlinePlayer(
             presenceManager = presenceManager,
             accelerationSetting = accelerationSetting,
         )
+
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = when (playbackState) {
+                    Player.STATE_READY -> false
+                    Player.STATE_BUFFERING -> true
+                    Player.STATE_IDLE -> exo.mediaItemCount > 0
+                    Player.STATE_ENDED -> false
+                    else -> false
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                isBuffering = false
+            }
+        }
+        exo.addListener(listener)
         playerView.player = exo
+        isBuffering = exo.playbackState != Player.STATE_READY
+
         onDispose {
+            exo.removeListener(listener)
             playerView.player = null
             presenceManager.stopHeartbeat()
             exo.release()
@@ -663,10 +685,26 @@ private fun PortraitInlinePlayer(
             )
         }
     } else {
-        AndroidView(
-            factory = { playerView },
-            modifier = Modifier.fillMaxSize()
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { playerView },
+                modifier = Modifier.fillMaxSize()
+            )
+            if (isBuffering) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0x66000000)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = Color(0xFF00BCD4),
+                        strokeWidth = 3.dp
+                    )
+                }
+            }
+        }
     }
 }
 
