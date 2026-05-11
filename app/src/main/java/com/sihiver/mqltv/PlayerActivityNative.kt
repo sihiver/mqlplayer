@@ -68,13 +68,7 @@ class PlayerActivityNative : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        val isTvDevice =
-            (resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-                Configuration.UI_MODE_TYPE_TELEVISION
-        requestedOrientation = when {
-            isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-        }
+        requestedOrientation = resolvePlayerRequestedOrientation(this)
 
         if (!AuthRepository.isLoggedIn(this)) {
             startActivity(Intent(this, LoginActivity::class.java))
@@ -207,5 +201,12 @@ class PlayerActivityNative : ComponentActivity() {
             videoView?.stopPlayback()
         }
         videoView = null
+    }
+
+    override fun onDestroy() {
+        if (::presenceManager.isInitialized) {
+            presenceManager.dispose()
+        }
+        super.onDestroy()
     }
 }

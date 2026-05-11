@@ -282,6 +282,9 @@ class PlayerActivityVLC : ComponentActivity() {
     override fun onDestroy() {
         numericCommitRunnable?.let(uiHandler::removeCallbacks)
         numericCommitRunnable = null
+        if (::presenceManager.isInitialized) {
+            presenceManager.dispose()
+        }
         super.onDestroy()
     }
 
@@ -302,6 +305,7 @@ class PlayerActivityVLC : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        applyPlaybackOrientation()
         startExpiryWatcher()
         startIdleCloseWatcher()
     }
@@ -317,13 +321,7 @@ class PlayerActivityVLC : ComponentActivity() {
     }
 
     private fun applyPlaybackOrientation() {
-        val isTvDevice =
-            (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
-                android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-        requestedOrientation = when {
-            isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-        }
+        requestedOrientation = resolvePlayerRequestedOrientation(this)
     }
 
     private fun hwFlagsForAcceleration(setting: String): Pair<Boolean, Boolean> {
@@ -433,7 +431,6 @@ class PlayerActivityVLC : ComponentActivity() {
             return
         }
         
-        val settings = readVideoSettings()
         applyPlaybackOrientation()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.setFlags(

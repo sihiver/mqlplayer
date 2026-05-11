@@ -255,6 +255,9 @@ class PlayerActivityExo : ComponentActivity() {
     override fun onDestroy() {
         numericCommitRunnable?.let(uiHandler::removeCallbacks)
         numericCommitRunnable = null
+        if (::presenceManager.isInitialized) {
+            presenceManager.dispose()
+        }
         super.onDestroy()
     }
     
@@ -286,14 +289,7 @@ class PlayerActivityExo : ComponentActivity() {
             }
         }
         
-        // TV: landscape. HP dari grid: potret.
-        val isTvDevice =
-            (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK) ==
-                android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-        requestedOrientation = when {
-            isTvDevice -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-        }
+        requestedOrientation = resolvePlayerRequestedOrientation(this)
         
         // Keep screen on during playback
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -442,6 +438,7 @@ class PlayerActivityExo : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        requestedOrientation = resolvePlayerRequestedOrientation(this)
         startExpiryWatcher()
         startIdleCloseWatcher()
     }

@@ -266,7 +266,7 @@ fun PortraitLiveGuideScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            presenceManager.sendOfflinePresence()
+            presenceManager.dispose()
         }
     }
 
