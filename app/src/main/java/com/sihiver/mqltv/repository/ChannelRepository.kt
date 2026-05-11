@@ -888,14 +888,27 @@ object ChannelRepository {
         }
     }
     
+    /**
+     * Pastikan URL playlist ter-resolve akun ada di prefs (mis. setelah data lama tanpa KEY_PLAYLIST_URLS).
+     */
+    fun ensureAccountPlaylistUrlStored(context: Context) {
+        if (!AuthRepository.isLoggedIn(context)) return
+        val url = AuthRepository.getResolvedPlaylistUrl(context).trim()
+        if (url.isNotBlank()) addPlaylistUrl(context, url)
+    }
+
+    /**
+     * Hapus semua channel dari cache lokal. **Tidak** memanggil [clearPlaylistUrls] — konfigurasi URL
+     * playlist tetap dipakai tombol refresh / sinkron agar grid bisa diisi ulang dari server.
+     */
     fun clearAllChannels(context: Context) {
         customChannels.clear()
         sampleChannels.clear()
         sampleChannelsCleared = true
         nextId = 100
-        clearPlaylistUrls(context)
         saveChannels(context)
-        android.util.Log.d("ChannelRepository", "All channels cleared including samples")
+        ensureAccountPlaylistUrlStored(context)
+        android.util.Log.d("ChannelRepository", "All channels cleared (playlist URLs prefs kept)")
     }
     
     // Recently Watched functionality

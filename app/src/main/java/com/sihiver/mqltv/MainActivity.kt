@@ -122,10 +122,12 @@ class MainActivity : ComponentActivity() {
                 if (!AuthRepository.isLoggedIn(this@MainActivity)) return@launch
 
                 try {
-                    val urls = ChannelRepository.getPlaylistUrls(this@MainActivity)
-
+                    val authPlaylist = AuthRepository.getResolvedPlaylistUrl(this@MainActivity).trim()
+                    val urls = linkedSetOf<String>().apply {
+                        if (authPlaylist.isNotBlank()) add(authPlaylist)
+                        ChannelRepository.getPlaylistUrls(this@MainActivity).forEach { add(it.trim()) }
+                    }
                     if (urls.isNotEmpty()) {
-                        val authPlaylist = AuthRepository.getResolvedPlaylistUrl(this@MainActivity).trim()
                         urls.forEach { playlistUrl ->
                             val isAccountPlaylist = authPlaylist.isNotBlank() &&
                                 playlistUrl.trim() == authPlaylist
@@ -1782,13 +1784,10 @@ private fun LiveStyleCategoryGridScreen(
                                     isRefreshing = true
                                     scope.launch {
                                         try {
-                                            ChannelRepository.getPlaylistUrls(context).forEach { playlistUrl ->
-                                                ChannelRepository.refreshPlaylistFromServer(
-                                                    context,
-                                                    playlistUrl,
-                                                    forceFullFetch = true,
-                                                )
-                                            }
+                                            ChannelRepository.syncAllPlaylistsFromServer(
+                                                context,
+                                                forceFullFetch = true,
+                                            )
                                             onPlaylistRefreshFinished()
                                         } finally {
                                             isRefreshing = false
@@ -1804,13 +1803,10 @@ private fun LiveStyleCategoryGridScreen(
                             isRefreshing = true
                             scope.launch {
                                 try {
-                                    ChannelRepository.getPlaylistUrls(context).forEach { playlistUrl ->
-                                        ChannelRepository.refreshPlaylistFromServer(
-                                            context,
-                                            playlistUrl,
-                                            forceFullFetch = true,
-                                        )
-                                    }
+                                    ChannelRepository.syncAllPlaylistsFromServer(
+                                        context,
+                                        forceFullFetch = true,
+                                    )
                                     onPlaylistRefreshFinished()
                                 } finally {
                                     isRefreshing = false

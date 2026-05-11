@@ -538,13 +538,10 @@ fun PortraitLiveGuideScreen(
                             isRefreshing = true
                             scope.launch {
                                 try {
-                                    ChannelRepository.getPlaylistUrls(context).forEach { url ->
-                                        ChannelRepository.refreshPlaylistFromServer(
-                                            context,
-                                            url,
-                                            forceFullFetch = true,
-                                        )
-                                    }
+                                    ChannelRepository.syncAllPlaylistsFromServer(
+                                        context,
+                                        forceFullFetch = true,
+                                    )
                                     refreshKey++
                                 } finally {
                                     isRefreshing = false
