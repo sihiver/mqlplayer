@@ -324,17 +324,21 @@ class MainActivity : ComponentActivity() {
                                 onChannelClick = { channel ->
                                     try {
                                         ChannelRepository.addToRecentlyWatched(this@MainActivity, channel.id)
-
-                                        val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
-                                        val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
-
-                                        val intent = when (playerType) {
-                                            "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
-                                            "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
-                                            else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                        if (!isTvDevice) {
+                                            startActivity(
+                                                PortraitLiveGuideActivity.createIntent(this@MainActivity, channel.id)
+                                            )
+                                        } else {
+                                            val prefs = getSharedPreferences("video_settings", android.content.Context.MODE_PRIVATE)
+                                            val playerType = prefs.getString("player_type", "ExoPlayer") ?: "ExoPlayer"
+                                            val intent = when (playerType) {
+                                                "VLC" -> Intent(this@MainActivity, PlayerActivityVLC::class.java)
+                                                "Native" -> Intent(this@MainActivity, PlayerActivityNative::class.java)
+                                                else -> Intent(this@MainActivity, PlayerActivityExo::class.java)
+                                            }
+                                            intent.putExtra("CHANNEL_ID", channel.id)
+                                            startActivity(intent)
                                         }
-                                        intent.putExtra("CHANNEL_ID", channel.id)
-                                        startActivity(intent)
                                     } catch (e: Exception) {
                                         android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
                                     }
@@ -448,7 +452,11 @@ class MainActivity : ComponentActivity() {
                                         } catch (e: Exception) {
                                             android.util.Log.e("MainActivity", "Error starting PlayerActivity", e)
                                         }
-                                    }
+                                    },
+                                    headerSearchFocusRequester = headerSearchFocusRequester,
+                                    headerRefreshFocusRequester = headerRefreshFocusRequester,
+                                    headerFavoritesFocusRequester = headerFavoritesFocusRequester,
+                                    gridEntryFocusRequester = liveGridEntryFocusRequester,
                                 )
                                 3 -> ProfileScreen(
                                     onLogout = performLogout,
@@ -1452,6 +1460,57 @@ fun LiveChannelsScreen(
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
     val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
     var refreshKey by remember { mutableStateOf(0) }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                refreshKey++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(refreshKey, channelsRevision) {
+        ChannelRepository.loadChannels(context)
+        ChannelRepository.loadRecentlyWatched(context)
+        ChannelRepository.loadFavorites(context)
+        channels = ChannelRepository.getAllChannels()
+    }
+
+    LiveStyleCategoryGridScreen(
+        channelPool = channels,
+        reloadGeneration = refreshKey,
+        channelsRevision = channelsRevision,
+        onPlaylistRefreshFinished = { refreshKey++ },
+        onChannelClick = onChannelClick,
+        headerSearchFocusRequester = headerSearchFocusRequester,
+        headerRefreshFocusRequester = headerRefreshFocusRequester,
+        headerFavoritesFocusRequester = headerFavoritesFocusRequester,
+        gridEntryFocusRequester = gridEntryFocusRequester,
+        singleSectionTitle = null,
+    )
+}
+
+@Composable
+@Suppress("UNUSED_PARAMETER")
+private fun LiveStyleCategoryGridScreen(
+    channelPool: List<Channel>,
+    reloadGeneration: Int,
+    channelsRevision: Int,
+    onPlaylistRefreshFinished: () -> Unit,
+    onChannelClick: (Channel) -> Unit,
+    headerSearchFocusRequester: FocusRequester? = null,
+    headerRefreshFocusRequester: FocusRequester? = null,
+    headerFavoritesFocusRequester: FocusRequester? = null,
+    gridEntryFocusRequester: FocusRequester? = null,
+    /** Jika diisi (mis. "Movie"): tanpa bar tab, hanya label + grid penuh dari [channelPool]. */
+    singleSectionTitle: String? = null,
+) {
+    val context = LocalContext.current
     var showSearchDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var showSearchResults by remember { mutableStateOf(false) }
@@ -1472,33 +1531,11 @@ fun LiveChannelsScreen(
 
     val searchActionFocusRequester = headerSearchFocusRequester ?: remember { FocusRequester() }
     val refreshActionFocusRequester = headerRefreshFocusRequester ?: remember { FocusRequester() }
-    val favoritesActionFocusRequester = headerFavoritesFocusRequester ?: remember { FocusRequester() }
     var isSearchFocused by remember { mutableStateOf(false) }
     var isRefreshFocused by remember { mutableStateOf(false) }
-    var isFavoritesFocused by remember { mutableStateOf(false) }
 
-    // Listen to lifecycle events
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                refreshKey++
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-    
-    // Refresh channels
-    LaunchedEffect(refreshKey, channelsRevision) {
-        ChannelRepository.loadChannels(context)
-        ChannelRepository.loadRecentlyWatched(context)
-        ChannelRepository.loadFavorites(context)
-        channels = ChannelRepository.getAllChannels()
-
-        // Terapkan setelah repo + state channel mutakhir (hindari race dengan DisposableEffect).
+    LaunchedEffect(reloadGeneration, channelsRevision) {
+        if (singleSectionTitle != null) return@LaunchedEffect
         val pending = ChannelRepository.peekPendingLiveGridCategoryTab(context)
         if (pending != null) {
             val keys = ChannelRepository.getLiveScreenCategoryTabKeys()
@@ -1509,16 +1546,19 @@ fun LiveChannelsScreen(
             }
         }
     }
-    
-    val categoryTabs = remember(channels) {
-        ChannelRepository.getLiveScreenCategoryTabKeys()
+
+    val categoryTabs = remember(channelPool, singleSectionTitle) {
+        if (singleSectionTitle != null) emptyList()
+        else ChannelRepository.getLiveScreenCategoryTabKeys()
     }
 
-    val filteredChannels = remember(channels, selectedCategory) {
-        if (selectedCategory == "ALL_CHANNELS") {
-            ChannelRepository.sortLiveChannelsLocalSportsFirst(channels)
+    val filteredChannels = remember(channelPool, selectedCategory, singleSectionTitle) {
+        if (singleSectionTitle != null) {
+            ChannelRepository.sortLiveChannelsLocalSportsFirst(channelPool)
+        } else if (selectedCategory == "ALL_CHANNELS") {
+            ChannelRepository.sortLiveChannelsLocalSportsFirst(channelPool)
         } else {
-            channels.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
+            channelPool.filter { it.category.trim().equals(selectedCategory, ignoreCase = true) }
         }
     }
     val firstFilteredChannelId = filteredChannels.firstOrNull()?.id
@@ -1554,10 +1594,27 @@ fun LiveChannelsScreen(
         }
     }
 
-    val navigateUpFromFirstGridRow: () -> Unit = focusSelectedCategoryTabAndScroll
+    val navigateUpFromFirstGridRow: () -> Unit =
+        if (singleSectionTitle != null) {
+            { runCatching { searchActionFocusRequester.requestFocus() } }
+        } else {
+            focusSelectedCategoryTabAndScroll
+        }
+
+    val tvNavigateDownFromHeader: () -> Unit = {
+        if (singleSectionTitle != null) {
+            runCatching { tabToGridFocusRequester.requestFocus() }
+        } else {
+            focusSelectedCategoryTabAndScroll()
+        }
+    }
 
     val playFromLiveGrid: (Channel) -> Unit = { ch ->
-        ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
+        if (singleSectionTitle != null) {
+            ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, "ALL_CHANNELS")
+        } else {
+            ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(context, selectedCategory)
+        }
         onChannelClick(ch)
     }
 
@@ -1593,7 +1650,7 @@ fun LiveChannelsScreen(
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                             onSearch = {
                                 val q = searchQuery.trim()
-                                val results = if (q.isBlank()) emptyList() else channels.filter {
+                                val results = if (q.isBlank()) emptyList() else channelPool.filter {
                                     it.name.contains(q, ignoreCase = true)
                                 }
                                 searchResults = results
@@ -1609,7 +1666,7 @@ fun LiveChannelsScreen(
                 TextButton(
                     onClick = {
                         val q = searchQuery.trim()
-                        val results = if (q.isBlank()) emptyList() else channels.filter {
+                        val results = if (q.isBlank()) emptyList() else channelPool.filter {
                             it.name.contains(q, ignoreCase = true)
                         }
                         searchResults = results
@@ -1660,7 +1717,7 @@ fun LiveChannelsScreen(
                         .background(if (isSearchFocused) Color(0x33FFFFFF) else Color.Transparent)
                         .focusRequester(searchActionFocusRequester)
                         .onFocusChanged { isSearchFocused = it.isFocused }
-                        .onTvHeaderNavigateDownToActiveTab(isTv, focusSelectedCategoryTabAndScroll)
+                        .onTvHeaderNavigateDownToActiveTab(isTv, tvNavigateDownFromHeader)
                         .focusable()
                         .focusProperties {
                             right = refreshActionFocusRequester
@@ -1693,7 +1750,7 @@ fun LiveChannelsScreen(
                         .background(if (isRefreshFocused) Color(0x33FFFFFF) else Color.Transparent)
                         .focusRequester(refreshActionFocusRequester)
                         .onFocusChanged { isRefreshFocused = it.isFocused }
-                        .onTvHeaderNavigateDownToActiveTab(isTv, focusSelectedCategoryTabAndScroll)
+                        .onTvHeaderNavigateDownToActiveTab(isTv, tvNavigateDownFromHeader)
                         .focusable()
                         .focusProperties {
                             left = searchActionFocusRequester
@@ -1709,7 +1766,7 @@ fun LiveChannelsScreen(
                                             ChannelRepository.getPlaylistUrls(context).forEach { playlistUrl ->
                                                 ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
                                             }
-                                            refreshKey++
+                                            onPlaylistRefreshFinished()
                                         } finally {
                                             isRefreshing = false
                                         }
@@ -1727,7 +1784,7 @@ fun LiveChannelsScreen(
                                     ChannelRepository.getPlaylistUrls(context).forEach { playlistUrl ->
                                         ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
                                     }
-                                    refreshKey++
+                                    onPlaylistRefreshFinished()
                                 } finally {
                                     isRefreshing = false
                                 }
@@ -1754,45 +1811,59 @@ fun LiveChannelsScreen(
             }
         }
 
-        if (isTv) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(tabRowScrollState)
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                categoryTabs.forEach { category ->
-                    val tabFr = tabFocusRequesters.getValue(category)
-                    LiveCategoryChip(
-                        text = formatLiveCategoryTabLabel(category),
-                        selected = selectedCategory == category,
-                        onClick = { selectedCategory = category },
-                        onFocusSelect = { selectedCategory = category },
-                        focusRequester = tabFr,
-                        focusUp = searchActionFocusRequester,
-                        focusDown = if (filteredChannels.isNotEmpty()) {
-                            tabToGridFocusRequester
-                        } else {
-                            null
-                        },
-                        isTv = true,
-                    )
+        when {
+            singleSectionTitle != null -> {
+                Material3Text(
+                    text = singleSectionTitle,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    fontSize = if (isTv) 22.sp else 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+            isTv -> {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(tabRowScrollState)
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    categoryTabs.forEach { category ->
+                        val tabFr = tabFocusRequesters.getValue(category)
+                        LiveCategoryChip(
+                            text = formatLiveCategoryTabLabel(category),
+                            selected = selectedCategory == category,
+                            onClick = { selectedCategory = category },
+                            onFocusSelect = { selectedCategory = category },
+                            focusRequester = tabFr,
+                            focusUp = searchActionFocusRequester,
+                            focusDown = if (filteredChannels.isNotEmpty()) {
+                                tabToGridFocusRequester
+                            } else {
+                                null
+                            },
+                            isTv = true,
+                        )
+                    }
                 }
             }
-        } else {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                itemsIndexed(categoryTabs) { _, category ->
-                    LiveCategoryChip(
-                        text = formatLiveCategoryTabLabel(category),
-                        selected = selectedCategory == category,
-                        onClick = { selectedCategory = category },
-                        isTv = false,
-                    )
+            else -> {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    itemsIndexed(categoryTabs) { _, category ->
+                        LiveCategoryChip(
+                            text = formatLiveCategoryTabLabel(category),
+                            selected = selectedCategory == category,
+                            onClick = { selectedCategory = category },
+                            isTv = false,
+                        )
+                    }
                 }
             }
         }
@@ -1846,7 +1917,7 @@ fun LiveChannelsScreen(
         }
     }
 
-    LaunchedEffect(isTv, filteredChannels.size) {
+    LaunchedEffect(isTv, filteredChannels.size, singleSectionTitle) {
         if (isTv && filteredChannels.isNotEmpty() && !initialFocusRequested) {
             runCatching { tabToGridFocusRequester.requestFocus() }
             initialFocusRequested = true
@@ -2118,92 +2189,54 @@ private fun LiveChannelGridCard(
 }
 
 @Composable
-fun MovieChannelsScreen(onChannelClick: (Channel) -> Unit) {
+fun MovieChannelsScreen(
+    onChannelClick: (Channel) -> Unit,
+    headerSearchFocusRequester: FocusRequester? = null,
+    headerRefreshFocusRequester: FocusRequester? = null,
+    headerFavoritesFocusRequester: FocusRequester? = null,
+    gridEntryFocusRequester: FocusRequester? = null,
+) {
     val context = LocalContext.current
-    val isTv = LocalIsTvMode.current
     var channels by remember { mutableStateOf(ChannelRepository.getAllChannels()) }
     val channelsRevision by ChannelRepository.channelsRevision.collectAsState(initial = 0)
+    var refreshKey by remember { mutableStateOf(0) }
 
-    LaunchedEffect(channelsRevision) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                refreshKey++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(refreshKey, channelsRevision) {
         ChannelRepository.loadChannels(context)
         ChannelRepository.loadRecentlyWatched(context)
         ChannelRepository.loadFavorites(context)
         channels = ChannelRepository.getAllChannels()
     }
 
-    val movieChannels = remember(channels) {
+    val moviePool = remember(channels) {
         channels.filter { it.category.contains("movie", ignoreCase = true) }
     }
 
-    val gridColumns = if (isTv) 6 else 3
-    val subtitleMuted = Color(0xFFD6E3FF)
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppGlobalBackgroundBrush)
-            .statusBarsPadding()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp)
-        ) {
-            Material3Text(
-                text = "MOVIES",
-                fontSize = if (isTv) 32.sp else 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Material3Text(
-                text = if (movieChannels.isEmpty()) {
-                    "Belum ada channel film"
-                } else {
-                    "${movieChannels.size} channel"
-                },
-                fontSize = if (isTv) 15.sp else 13.sp,
-                color = subtitleMuted,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-
-        if (movieChannels.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                Material3Text(
-                    text = "Tidak ada channel MOVIES",
-                    color = subtitleMuted,
-                    fontSize = 16.sp
-                )
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = if (isTv) GridCells.Fixed(6) else GridCells.Fixed(3),
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(bottom = 20.dp)
-            ) {
-                gridItemsIndexed(movieChannels) { index, channel ->
-                    val isFirstGridRow = index < gridColumns
-                    LiveChannelGridCard(
-                        channel = channel,
-                        channelNumber = index + 1,
-                        onClick = onChannelClick,
-                        onNavigateUpFromFirstRow = null,
-                        isFirstGridRow = isFirstGridRow,
-                    )
-                }
-            }
-        }
-    }
+    LiveStyleCategoryGridScreen(
+        channelPool = moviePool,
+        reloadGeneration = refreshKey,
+        channelsRevision = channelsRevision,
+        onPlaylistRefreshFinished = { refreshKey++ },
+        onChannelClick = onChannelClick,
+        headerSearchFocusRequester = headerSearchFocusRequester,
+        headerRefreshFocusRequester = headerRefreshFocusRequester,
+        headerFavoritesFocusRequester = headerFavoritesFocusRequester,
+        gridEntryFocusRequester = gridEntryFocusRequester,
+        singleSectionTitle = "Movie",
+    )
 }
 
 @Composable
