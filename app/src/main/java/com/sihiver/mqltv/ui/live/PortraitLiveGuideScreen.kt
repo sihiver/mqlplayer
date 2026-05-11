@@ -539,7 +539,11 @@ fun PortraitLiveGuideScreen(
                             scope.launch {
                                 try {
                                     ChannelRepository.getPlaylistUrls(context).forEach { url ->
-                                        ChannelRepository.refreshPlaylistFromServer(context, url)
+                                        ChannelRepository.refreshPlaylistFromServer(
+                                            context,
+                                            url,
+                                            forceFullFetch = true,
+                                        )
                                     }
                                     refreshKey++
                                 } finally {

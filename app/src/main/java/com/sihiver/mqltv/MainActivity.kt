@@ -125,9 +125,17 @@ class MainActivity : ComponentActivity() {
                     val urls = ChannelRepository.getPlaylistUrls(this@MainActivity)
 
                     if (urls.isNotEmpty()) {
+                        val authPlaylist = AuthRepository.getResolvedPlaylistUrl(this@MainActivity).trim()
                         urls.forEach { playlistUrl ->
-                            android.util.Log.d("MainActivity", "Auto-refreshing playlist from: $playlistUrl")
-                            ChannelRepository.refreshPlaylistFromServer(this@MainActivity, playlistUrl)
+                            val isAccountPlaylist = authPlaylist.isNotBlank() &&
+                                playlistUrl.trim() == authPlaylist
+                            android.util.Log.d("MainActivity", "Auto-refreshing playlist from: $playlistUrl (forceFull=$isAccountPlaylist)")
+                            ChannelRepository.refreshPlaylistFromServer(
+                                this@MainActivity,
+                                playlistUrl,
+                                // URL playlist akun = server IPTV: selalu unduh penuh agar channel mengikuti server.
+                                forceFullFetch = isAccountPlaylist,
+                            )
                         }
                     }
                 } catch (e: Exception) {
@@ -222,13 +230,17 @@ class MainActivity : ComponentActivity() {
         // Load saved channels
         ChannelRepository.loadChannels(this)
 
-        // Always ensure the default (simple/sample) playlist URL exists (unless user cleared samples),
-        // then also keep the authenticated playlist URL.
-        ChannelRepository.ensureDefaultPlaylistUrl(this)
-
-        val authPlaylistUrl = AuthRepository.getPlaylistUrl(this).trim()
-        if (authPlaylistUrl.isNotBlank()) {
+        val authPlaylistUrl = AuthRepository.getResolvedPlaylistUrl(this).trim()
+        val loggedIn = AuthRepository.isLoggedIn(this)
+        if (loggedIn && authPlaylistUrl.isNotBlank()) {
+            // Hanya playlist akun — jangan campur playlist sampel 192.168… (banyak channel).
             ChannelRepository.addPlaylistUrl(this, authPlaylistUrl)
+            ChannelRepository.removeDefaultSamplePlaylistForLoggedInUser(this)
+        } else {
+            ChannelRepository.ensureDefaultPlaylistUrl(this)
+            if (authPlaylistUrl.isNotBlank()) {
+                ChannelRepository.addPlaylistUrl(this, authPlaylistUrl)
+            }
         }
         
         setContent {
@@ -712,10 +724,17 @@ class MainActivity : ComponentActivity() {
     
     override fun onResume() {
         super.onResume()
-        // Reload channels when returning to this activity
+        // Tampilkan cache dulu, lalu tarik playlist terbaru dari server (jangan hanya baca disk).
         ChannelRepository.loadChannels(this)
         startExpiryWatcher()
         startPlaylistAutoRefresh()
+        lifecycleScope.launch {
+            try {
+                ChannelRepository.syncAllPlaylistsFromServer(this@MainActivity, forceFullFetch = true)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Sync playlist from server on resume failed", e)
+            }
+        }
     }
 
     override fun onPause() {
@@ -1764,7 +1783,11 @@ private fun LiveStyleCategoryGridScreen(
                                     scope.launch {
                                         try {
                                             ChannelRepository.getPlaylistUrls(context).forEach { playlistUrl ->
-                                                ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
+                                                ChannelRepository.refreshPlaylistFromServer(
+                                                    context,
+                                                    playlistUrl,
+                                                    forceFullFetch = true,
+                                                )
                                             }
                                             onPlaylistRefreshFinished()
                                         } finally {
@@ -1782,7 +1805,11 @@ private fun LiveStyleCategoryGridScreen(
                             scope.launch {
                                 try {
                                     ChannelRepository.getPlaylistUrls(context).forEach { playlistUrl ->
-                                        ChannelRepository.refreshPlaylistFromServer(context, playlistUrl)
+                                        ChannelRepository.refreshPlaylistFromServer(
+                                            context,
+                                            playlistUrl,
+                                            forceFullFetch = true,
+                                        )
                                     }
                                     onPlaylistRefreshFinished()
                                 } finally {

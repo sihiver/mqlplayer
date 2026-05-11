@@ -14,8 +14,12 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Manages user presence (online/offline/heartbeat) to the backend server.
- * 
+ * Presence ke backend (`POST .../public/presence`).
+ *
+ * **Catatan:** scaffold **mql_manager** di README hanya mencantumkan publik
+ * `POST /public/login`, `GET /public/m3u/{id}.m3u`, `GET /public/users/{appKey}/playlist.m3u`.
+ * Endpoint presence bersifat **opsional**; jika server mengembalikan 404, panggilan diabaikan.
+ *
  * Flow:
  * 1. User clicks channel → sendOnlinePresence()
  * 2. After playback starts → startHeartbeat() (every 60 seconds)

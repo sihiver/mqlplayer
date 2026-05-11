@@ -261,11 +261,12 @@ class LoginActivity : ComponentActivity() {
                                                     expiresAtRaw = result.expiresAtRaw,
                                                     expiresAtMillis = result.expiresAtMillis,
                                                     isExpiredServer = result.isExpired,
+                                                    playlistId = result.playlistId,
                                                 )
 
                                                 ChannelRepository.clearPlaylistUrls(this@LoginActivity)
                                                 ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
-                                                ChannelRepository.ensureDefaultPlaylistUrl(this@LoginActivity)
+                                                ChannelRepository.removeDefaultSamplePlaylistForLoggedInUser(this@LoginActivity)
 
                                                 isLoading = false
                                                 if (result.isExpired) {
@@ -294,12 +295,13 @@ class LoginActivity : ComponentActivity() {
                                                     expiresAtRaw = result.expiresAtRaw,
                                                     expiresAtMillis = result.expiresAtMillis,
                                                     isExpiredServer = true,
+                                                    playlistId = result.playlistId,
                                                 )
 
                                                 if (result.playlistUrl.isNotBlank()) {
                                                     ChannelRepository.clearPlaylistUrls(this@LoginActivity)
                                                     ChannelRepository.addPlaylistUrl(this@LoginActivity, result.playlistUrl)
-                                                    ChannelRepository.ensureDefaultPlaylistUrl(this@LoginActivity)
+                                                    ChannelRepository.removeDefaultSamplePlaylistForLoggedInUser(this@LoginActivity)
                                                 }
 
                                                 isLoading = false
@@ -388,6 +390,8 @@ class LoginActivity : ComponentActivity() {
             val expiresAtRaw: String,
             val expiresAtMillis: Long,
             val isExpired: Boolean,
+            /** >0: `GET /public/m3u/{id}.m3u` (mql_manager). */
+            val playlistId: Long = -1L,
         ) : LoginResult()
 
         data class Expired(
@@ -398,6 +402,7 @@ class LoginActivity : ComponentActivity() {
             val expiresAtMillis: Long,
             val message: String,
             val playlistUrl: String = "",
+            val playlistId: Long = -1L,
         ) : LoginResult()
 
         data class Error(val message: String) : LoginResult()
@@ -474,8 +479,9 @@ class LoginActivity : ComponentActivity() {
                 val message = json.optString("error", "").ifBlank { "HTTP $status" }
                 return@withContext LoginResult.Error(message)
             }
-            // mql_manager public login response:
-            // { ok: true, user: { appKey, expiresAt?, ... }, publicPlaylistUrl: "/public/users/{appKey}/playlist.m3u" }
+            // mql_manager public: POST /public/login
+            // Respons umum: ok, user (appKey, expiresAt, …), opsional playlistId / publicPlaylistUrl.
+            // M3U publik: GET /public/m3u/{playlistId}.m3u atau GET /public/users/{appKey}/playlist.m3u
             val ok = json.optBoolean("ok", false)
             if (!ok) {
                 return@withContext LoginResult.Error("Login gagal")
@@ -489,14 +495,10 @@ class LoginActivity : ComponentActivity() {
                 return@withContext LoginResult.Error("Response tidak valid: appKey kosong")
             }
 
-            val playlistPath = json.optString("publicPlaylistUrl", "").trim()
-            if (playlistPath.isBlank()) {
-                return@withContext LoginResult.Error("Response tidak valid: publicPlaylistUrl kosong")
-            }
+            val playlistId = AuthRepository.parsePlaylistIdFromLoginJson(json, user)
 
-            // Safety check: playlist URL should correspond to the same appKey.
-            // Expected pattern: /public/users/{appKey}/playlist.m3u
-            run {
+            val playlistPath = json.optString("publicPlaylistUrl", "").trim()
+            if (playlistPath.isNotBlank() && playlistId <= 0L) {
                 val expectedSegment = "/public/users/${appKey}/"
                 val candidate = if (playlistPath.startsWith("http://") || playlistPath.startsWith("https://")) {
                     try {
@@ -507,7 +509,6 @@ class LoginActivity : ComponentActivity() {
                 } else {
                     playlistPath
                 }
-
                 if (candidate.contains("/public/users/") && !candidate.contains(expectedSegment)) {
                     return@withContext LoginResult.Error("Playlist tidak sesuai user (appKey mismatch)")
                 }
@@ -517,11 +518,10 @@ class LoginActivity : ComponentActivity() {
             val expiresAtMillis = AuthRepository.parseExpiresAtMillis(expiresAtRaw)
             val isExpired = expiresAtMillis > 0L && System.currentTimeMillis() >= expiresAtMillis
 
-            val fullPlaylistUrl = if (playlistPath.startsWith("http://") || playlistPath.startsWith("https://")) {
-                playlistPath
+            val fullPlaylistUrl = if (playlistId > 0L) {
+                AuthRepository.buildPublicM3uByPlaylistId(usedBaseUrl, playlistId)
             } else {
-                val normalized = if (playlistPath.startsWith("/")) playlistPath else "/$playlistPath"
-                "$usedBaseUrl$normalized"
+                AuthRepository.buildPublicPlaylistM3uUrl(usedBaseUrl, appKey)
             }
 
             if (isExpired) {
@@ -533,6 +533,7 @@ class LoginActivity : ComponentActivity() {
                     expiresAtMillis = expiresAtMillis,
                     message = "Akun sudah expired",
                     playlistUrl = fullPlaylistUrl,
+                    playlistId = playlistId,
                 )
             }
 
@@ -544,6 +545,7 @@ class LoginActivity : ComponentActivity() {
                 expiresAtRaw = expiresAtRaw,
                 expiresAtMillis = expiresAtMillis,
                 isExpired = false,
+                playlistId = playlistId,
             )
         }
     }

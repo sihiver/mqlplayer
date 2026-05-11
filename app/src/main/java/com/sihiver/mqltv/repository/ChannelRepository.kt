@@ -11,6 +11,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.HashSet
 import java.util.Locale
 
 object ChannelRepository {
@@ -31,6 +32,49 @@ object ChannelRepository {
 
     // Default embedded playlist URL (always kept unless user clears samples).
     private const val DEFAULT_SAMPLE_PLAYLIST_URL = "http://192.168.15.1:5140/playlist.m3u"
+
+    /**
+     * Tag sumber stabil untuk channel yang diimpor dari playlist login (bukan URL penuh).
+     * Mencegah channel lama “nyangkut” bila URL ter-resolve berubah (mis. `/public/users/...`
+     * vs `/public/m3u/{id}.m3u`) sehingga merge/hapus tidak lagi memakai `source == normalizedUrl`.
+     */
+    private const val SOURCE_ACCOUNT_PLAYLIST = "__mql_account_playlist__"
+
+    private fun isSamePlaylistHost(context: Context, channelSource: String): Boolean {
+        val base = AuthRepository.getResolvedPlaylistUrl(context).trim()
+        if (base.isEmpty()) return false
+        return try {
+            val u1 = URL(base)
+            val u2 = URL(channelSource.trim())
+            u1.host.equals(u2.host, ignoreCase = true) && u1.protocol == u2.protocol
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * True jika channel ini berasal dari impor playlist akun (tag stabil, URL tersimpan,
+     * atau varian URL backend yang sama sehingga harus diganti saat server mengubah isi playlist).
+     */
+    private fun belongsToAccountPlaylistImport(
+        context: Context,
+        channelSource: String,
+        normalizedUrl: String,
+    ): Boolean {
+        val cs = channelSource.trim()
+        val nu = normalizedUrl.trim()
+        val res = AuthRepository.getResolvedPlaylistUrl(context).trim()
+        val raw = AuthRepository.getPlaylistUrl(context).trim()
+        if (cs == SOURCE_ACCOUNT_PLAYLIST) return true
+        if (cs == nu || cs == raw || cs == res) return true
+        if (!isSamePlaylistHost(context, cs)) return false
+        if (cs.contains("/public/users/") && cs.contains("playlist.m3u")) return true
+        val accountUsesNumericM3u = res.contains("/public/m3u/") || nu.contains("/public/m3u/")
+        if (accountUsesNumericM3u && cs.contains("/public/m3u/") && cs.endsWith(".m3u", ignoreCase = true)) {
+            return true
+        }
+        return false
+    }
 
     private fun playlistCacheKey(url: String, suffix: String): String {
         // Short, stable key derived from URL to avoid very long preference keys.
@@ -381,13 +425,26 @@ object ChannelRepository {
         }
     }
     
-    suspend fun refreshPlaylistFromServer(context: Context, url: String) {
+    /**
+     * Unduh ulang playlist dari URL.
+     * @param forceFullFetch true (mis. tombol Refresh manual): jangan kirim If-None-Match / If-Modified-Since,
+     *   supaya selalu dapat body terbaru — banyak server/CDN yang mengembalikan 304 atau metadata salah sehingga daftar tidak sinkron.
+     *   Untuk auto-refresh periodik: gunakan false agar hemat bandwidth.
+     */
+    suspend fun refreshPlaylistFromServer(
+        context: Context,
+        url: String,
+        forceFullFetch: Boolean = false,
+    ) {
         return withContext(Dispatchers.IO) {
             try {
                 val normalizedUrl = url.trim()
-                android.util.Log.d("ChannelRepository", "Refreshing playlist from server: $normalizedUrl")
+                android.util.Log.d(
+                    "ChannelRepository",
+                    "Refreshing playlist from server: $normalizedUrl (forceFullFetch=$forceFullFetch)",
+                )
 
-                val authUrl = AuthRepository.getPlaylistUrl(context).trim()
+                val authUrl = AuthRepository.getResolvedPlaylistUrl(context).trim()
                 val isAccountPlaylist = authUrl.isNotBlank() && normalizedUrl == authUrl
 
                 val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
@@ -405,12 +462,19 @@ object ChannelRepository {
                 connection.connectTimeout = 10000
                 connection.readTimeout = 10000
 
-                // Change-detection headers (best effort)
-                if (previousEtag.isNotEmpty()) {
-                    connection.setRequestProperty("If-None-Match", previousEtag)
+                if (forceFullFetch) {
+                    connection.setRequestProperty("Cache-Control", "no-cache")
+                    connection.setRequestProperty("Pragma", "no-cache")
                 }
-                if (previousLastModified > 0L) {
-                    connection.ifModifiedSince = previousLastModified
+
+                // Change-detection headers (best effort). Skip saat refresh manual — hindari 304 palsu / konten tidak sinkron.
+                if (!forceFullFetch) {
+                    if (previousEtag.isNotEmpty()) {
+                        connection.setRequestProperty("If-None-Match", previousEtag)
+                    }
+                    if (previousLastModified > 0L) {
+                        connection.ifModifiedSince = previousLastModified
+                    }
                 }
 
                 val status = try {
@@ -469,6 +533,8 @@ object ChannelRepository {
                 }
 
                 // Parse new playlist
+                val channelSourceTag =
+                    if (isAccountPlaylist) SOURCE_ACCOUNT_PLAYLIST else normalizedUrl
                 val newChannels = mutableListOf<Channel>()
                 val lines = content.lines()
                 var currentName = ""
@@ -509,7 +575,7 @@ object ChannelRepository {
                                         url = urlPart,
                                         category = currentGroup,
                                         logo = currentLogo,
-                                        source = normalizedUrl
+                                        source = channelSourceTag
                                     )
                                 )
                                 currentName = ""
@@ -536,7 +602,7 @@ object ChannelRepository {
                                 url = line,
                                 category = currentGroup,
                                 logo = currentLogo,
-                                source = normalizedUrl
+                                source = channelSourceTag
                             )
                         )
                         currentName = ""
@@ -545,7 +611,11 @@ object ChannelRepository {
                 }
 
                 // Compare with existing channels and update
-                val existingChannels = customChannels.filter { it.source == normalizedUrl }
+                val existingChannels = if (isAccountPlaylist) {
+                    customChannels.filter { belongsToAccountPlaylistImport(context, it.source, normalizedUrl) }
+                } else {
+                    customChannels.filter { it.source == normalizedUrl }
+                }
 
                 val newByUrl = newChannels.associateBy { it.url }
                 val existingByUrl = existingChannels.associateBy { it.url }
@@ -580,7 +650,13 @@ object ChannelRepository {
                 // Update metadata for channels that still exist (name/logo/category/drm)
                 // This is the key bugfix so UI updates even when URL membership doesn't change.
                 customChannels = customChannels.mapTo(mutableListOf()) { ch ->
-                    val server = if (ch.source == normalizedUrl) newByUrl[ch.url] else null
+                    val server = when {
+                        isAccountPlaylist &&
+                            belongsToAccountPlaylistImport(context, ch.source, normalizedUrl) ->
+                            newByUrl[ch.url]
+                        !isAccountPlaylist && ch.source == normalizedUrl -> newByUrl[ch.url]
+                        else -> null
+                    }
                     if (server == null) {
                         ch
                     } else {
@@ -588,6 +664,7 @@ object ChannelRepository {
                             name = server.name,
                             logo = server.logo,
                             category = server.category,
+                            source = if (isAccountPlaylist) SOURCE_ACCOUNT_PLAYLIST else ch.source,
                             // keep existing ID
                             drmLicenseUrl = if (server.drmLicenseUrl.isNotBlank()) server.drmLicenseUrl else ch.drmLicenseUrl
                         )
@@ -626,7 +703,51 @@ object ChannelRepository {
             }
         }
     }
-    
+
+    /**
+     * Sinkronkan semua playlist dari URL server (unduh ulang + merge ke channel lokal).
+     * URL playlist akun login diproses dulu (biasanya server IPTV utama).
+     * Setelah selesai memuat ulang dari disk dan menaikkan [channelsRevision] agar UI ikut terbarui.
+     */
+    suspend fun syncAllPlaylistsFromServer(context: Context, forceFullFetch: Boolean = true) {
+        if (AuthRepository.isLoggedIn(context)) {
+            try {
+                AuthRepository.syncPlaylistUrlFromLoginApi(context)
+            } catch (e: Exception) {
+                android.util.Log.e(
+                    "ChannelRepository",
+                    "syncPlaylistUrlFromLoginApi gagal — lanjut unduh dari URL yang ada",
+                    e,
+                )
+            }
+        }
+
+        val authUrl = AuthRepository.getResolvedPlaylistUrl(context).trim()
+        val loggedIn = AuthRepository.isLoggedIn(context)
+        val skipSampleWhileAccount =
+            loggedIn && authUrl.isNotBlank()
+        val ordered = LinkedHashSet<String>().apply {
+            if (authUrl.isNotBlank()) add(authUrl)
+            getPlaylistUrls(context).forEach { u ->
+                val t = u.trim()
+                if (t.isEmpty()) return@forEach
+                if (skipSampleWhileAccount && t == DEFAULT_SAMPLE_PLAYLIST_URL) return@forEach
+                add(t)
+            }
+        }
+        if (ordered.isEmpty()) {
+            loadChannels(context)
+            return
+        }
+        withContext(Dispatchers.IO) {
+            ordered.forEach { url ->
+                refreshPlaylistFromServer(context, url, forceFullFetch)
+            }
+        }
+        loadChannels(context)
+        _channelsRevision.value = _channelsRevision.value + 1
+    }
+
     fun getPlaylistUrls(context: Context): List<String> {
         val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
         val currentSet = (prefs.getStringSet(KEY_PLAYLIST_URLS, emptySet()) ?: emptySet()).toMutableSet()
@@ -637,8 +758,15 @@ object ChannelRepository {
             currentSet.add(legacy)
             prefs.edit()
                 .remove(KEY_PLAYLIST_URL_LEGACY)
-                .putStringSet(KEY_PLAYLIST_URLS, currentSet)
+                .putStringSet(KEY_PLAYLIST_URLS, HashSet(currentSet))
                 .apply()
+        }
+
+        if (AuthRepository.isLoggedIn(context)) {
+            val accountUrl = AuthRepository.getResolvedPlaylistUrl(context).trim()
+            if (accountUrl.isNotBlank() && currentSet.remove(DEFAULT_SAMPLE_PLAYLIST_URL)) {
+                prefs.edit().putStringSet(KEY_PLAYLIST_URLS, HashSet(currentSet)).apply()
+            }
         }
 
         val normalized = currentSet.map { it.trim() }.filter { it.isNotBlank() }.toSet()
@@ -653,7 +781,7 @@ object ChannelRepository {
             ordered.add(DEFAULT_SAMPLE_PLAYLIST_URL)
         }
 
-        val accountUrl = AuthRepository.getPlaylistUrl(context).trim()
+        val accountUrl = AuthRepository.getResolvedPlaylistUrl(context).trim()
         if (accountUrl.isNotBlank() && normalized.contains(accountUrl) && !ordered.contains(accountUrl)) {
             ordered.add(accountUrl)
         }
@@ -677,8 +805,36 @@ object ChannelRepository {
         currentSet.add(normalized)
         prefs.edit()
             .remove(KEY_PLAYLIST_URL_LEGACY)
-            .putStringSet(KEY_PLAYLIST_URLS, currentSet)
+            .putStringSet(KEY_PLAYLIST_URLS, HashSet(currentSet))
             .apply()
+    }
+
+    fun removePlaylistUrl(context: Context, url: String) {
+        val normalized = url.trim()
+        if (normalized.isEmpty()) return
+
+        val prefs = context.getSharedPreferences(PREFS_APP, Context.MODE_PRIVATE)
+        val currentSet = (prefs.getStringSet(KEY_PLAYLIST_URLS, emptySet()) ?: emptySet()).toMutableSet()
+        if (!currentSet.remove(normalized)) return
+        prefs.edit()
+            .remove(KEY_PLAYLIST_URL_LEGACY)
+            .putStringSet(KEY_PLAYLIST_URLS, HashSet(currentSet))
+            .apply()
+    }
+
+    /**
+     * User yang sudah login dengan playlist akun tidak perlu playlist sampel bawaan (192.168…),
+     * supaya sinkronisasi dan grid hanya mengikuti M3U server (mis. 15 channel).
+     */
+    fun removeDefaultSamplePlaylistForLoggedInUser(context: Context) {
+        if (!AuthRepository.isLoggedIn(context)) return
+        val sample = DEFAULT_SAMPLE_PLAYLIST_URL.trim()
+        if (sample.isBlank()) return
+        removePlaylistUrl(context, sample)
+        val removedAny = customChannels.removeAll { it.source == sample }
+        if (removedAny) {
+            saveChannels(context)
+        }
     }
 
     fun clearPlaylistUrls(context: Context) {

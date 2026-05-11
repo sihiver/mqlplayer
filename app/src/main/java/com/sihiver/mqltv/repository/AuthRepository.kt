@@ -6,6 +6,8 @@ import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
@@ -23,6 +25,8 @@ object AuthRepository {
     private const val KEY_SERVER_BASE_URL = "server_base_url"
     private const val KEY_USERNAME = "username"
     private const val KEY_PLAYLIST_URL = "playlist_url"
+    /** >0 = pakai GET /public/m3u/{id}.m3u (mql_manager). -1 = tidak dipakai. */
+    private const val KEY_PLAYLIST_ID = "playlist_id"
     private const val KEY_APP_KEY = "app_key"
 
     private const val KEY_EXPIRES_AT_RAW = "expires_at_raw"
@@ -109,9 +113,58 @@ object AuthRepository {
         return prefs.getString(KEY_PLAYLIST_URL, "")?.trim().orEmpty()
     }
 
+    fun getPlaylistId(context: Context): Long {
+        val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+        return prefs.getLong(KEY_PLAYLIST_ID, -1L)
+    }
+
+    /**
+     * URL unduhan M3U publik sesuai **mql_manager**:
+     * - Jika [getPlaylistId] > 0: `GET /public/m3u/{playlistId}.m3u`
+     * - Jika tidak: `GET /public/users/{appKey}/playlist.m3u`
+     * - Fallback: [getPlaylistUrl]
+     */
+    fun getResolvedPlaylistUrl(context: Context): String {
+        val base = getServerBaseUrl(context).trim()
+        val pid = getPlaylistId(context)
+        if (pid > 0L && base.isNotBlank()) {
+            return buildPublicM3uByPlaylistId(base, pid)
+        }
+        val key = getAppKey(context).trim()
+        return if (key.isNotBlank() && base.isNotBlank()) {
+            buildPublicPlaylistM3uUrl(base, key)
+        } else {
+            getPlaylistUrl(context)
+        }
+    }
+
     fun getAppKey(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
         return prefs.getString(KEY_APP_KEY, "")?.trim().orEmpty()
+    }
+
+    /** `GET /public/users/{appKey}/playlist.m3u` — mql_manager public API. */
+    fun buildPublicPlaylistM3uUrl(serverBaseUrl: String, appKey: String): String {
+        val base = normalizeServerBaseUrl(serverBaseUrl).trim().removeSuffix("/")
+        val key = appKey.trim()
+        return "$base/public/users/$key/playlist.m3u"
+    }
+
+    /** `GET /public/m3u/{playlistId}.m3u` — mql_manager public API. */
+    fun buildPublicM3uByPlaylistId(serverBaseUrl: String, playlistId: Long): String {
+        val base = normalizeServerBaseUrl(serverBaseUrl).trim().removeSuffix("/")
+        return "$base/public/m3u/$playlistId.m3u"
+    }
+
+    /** Baca `playlistId` dari body JSON login (akar atau di dalam `user`). */
+    fun parsePlaylistIdFromLoginJson(json: JSONObject, user: JSONObject?): Long {
+        var id = json.optLong("playlistId", -1L)
+        if (id <= 0L) id = json.optLong("playlist_id", -1L)
+        if (id <= 0L && user != null) {
+            id = user.optLong("playlistId", -1L)
+            if (id <= 0L) id = user.optLong("playlist_id", -1L)
+        }
+        return id
     }
 
     fun getExpiresAtRaw(context: Context): String {
@@ -169,7 +222,7 @@ object AuthRepository {
     }
 
     suspend fun probeExpiredFromPlaylistUrl(context: Context): Boolean {
-        val playlistUrl = getPlaylistUrl(context)
+        val playlistUrl = getResolvedPlaylistUrl(context)
         if (playlistUrl.isBlank()) return false
 
         return withContext(Dispatchers.IO) {
@@ -215,12 +268,12 @@ object AuthRepository {
     }
 
     /**
-     * Probe account status against mql_manager public API.
+     * Probe akun (throttled).
      *
-     * Prefers GET /public/users/{appKey}/status when appKey exists.
-     * Falls back to POST /public/login (requires stored credentials).
-     *
-     * This is more sensitive than playlist probing, so it is throttled.
+     * Dokumentasi mql_manager hanya mencantumkan publik:
+     * `POST /public/login`, `GET /public/m3u/{id}.m3u`, `GET /public/users/{appKey}/playlist.m3u`.
+     * Endpoint `GET /public/users/{appKey}/status` bersifat opsional: jika **404**, tidak dianggap expired
+     * dan akan lanjut ke **POST /public/login**.
      */
     suspend fun probeExpiredFromLoginIfNeeded(context: Context, minIntervalMs: Long = 5 * 60 * 1000L): Boolean {
         val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
@@ -244,7 +297,7 @@ object AuthRepository {
         val serverBaseUrl = getServerBaseUrl(context).trim().ifBlank { return null }.removeSuffix("/")
 
         return withContext(Dispatchers.IO) {
-            fun runProbe(baseUrl: String): Boolean {
+            fun runProbe(baseUrl: String): Boolean? {
                 val url = URL("$baseUrl/public/users/${appKey.trim()}/status")
                 val connection = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
@@ -268,15 +321,20 @@ object AuthRepository {
                 }
 
                 if (status !in 200..299) {
-                    // 404 / 401 usually means invalid appKey or removed user.
-                    if (status == 401 || status == 403 || status == 404) {
-                        android.util.Log.w("AuthRepository", "Status probe got HTTP $status. Marking session expired.")
+                    if (status == 401 || status == 403) {
+                        android.util.Log.w("AuthRepository", "Status probe HTTP $status — sesi ditandai expired.")
                         markExpiredServer(context)
                         return true
                     }
-
-                    android.util.Log.d("AuthRepository", "Status probe HTTP $status")
-                    return false
+                    if (status == 404) {
+                        android.util.Log.d(
+                            "AuthRepository",
+                            "GET /public/users/.../status tidak ada (404) — lewati, pakai /public/login.",
+                        )
+                        return null
+                    }
+                    android.util.Log.d("AuthRepository", "Status probe HTTP $status — lewati.")
+                    return null
                 }
 
                 val json = try {
@@ -516,6 +574,155 @@ object AuthRepository {
         return dateTimeWithMillis + zonePart
     }
 
+    /**
+     * Memanggil ulang **POST /public/login** (kredensial tersimpan) agar [KEY_PLAYLIST_URL] dan
+     * **publicPlaylistUrl** selaras dengan server sebelum unduh .m3u.
+     * Tanpa ini, klien hanya GET ke URL lama — jika API mengubah path/token playlist, daftar channel tidak pernah terbarui.
+     */
+    suspend fun syncPlaylistUrlFromLoginApi(context: Context): Boolean {
+        if (!isLoggedIn(context)) return false
+        val username = getUsername(context).trim()
+        val password = getPassword(context).trim()
+        if (username.isBlank() || password.isBlank()) {
+            android.util.Log.w(
+                "AuthRepository",
+                "syncPlaylistUrlFromLoginApi: butuh username + password tersimpan (login ulang jika perlu).",
+            )
+            return false
+        }
+
+        return withContext(Dispatchers.IO) {
+            fun doLogin(baseUrl: String): Pair<Int, JSONObject> {
+                val url = URL("$baseUrl/public/login")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                }
+                val payload = JSONObject()
+                    .put("username", username)
+                    .put("password", password)
+                    .toString()
+                connection.outputStream.use { os ->
+                    os.write(payload.toByteArray(Charsets.UTF_8))
+                }
+                val status = connection.responseCode
+                val body = try {
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    BufferedReader(InputStreamReader(stream)).use { it.readText() }
+                } catch (_: Exception) {
+                    ""
+                }
+                val json = try {
+                    if (body.isNotBlank()) JSONObject(body) else JSONObject()
+                } catch (_: Exception) {
+                    JSONObject()
+                }
+                return status to json
+            }
+
+            var usedBase = getServerBaseUrl(context).trim().removeSuffix("/")
+            if (usedBase.isBlank()) return@withContext false
+
+            val (status, json) = try {
+                doLogin(usedBase)
+            } catch (e: Exception) {
+                if (usedBase.startsWith("https://")) {
+                    val httpBase = "http://" + usedBase.removePrefix("https://")
+                    context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
+                        .edit()
+                        .putString(KEY_SERVER_BASE_URL, httpBase)
+                        .apply()
+                    usedBase = httpBase
+                    try {
+                        doLogin(usedBase)
+                    } catch (e2: Exception) {
+                        android.util.Log.e("AuthRepository", "syncPlaylistUrlFromLoginApi login failed", e2)
+                        return@withContext false
+                    }
+                } else {
+                    android.util.Log.e("AuthRepository", "syncPlaylistUrlFromLoginApi login failed", e)
+                    return@withContext false
+                }
+            }
+
+            if (status !in 200..299) {
+                android.util.Log.w("AuthRepository", "syncPlaylistUrlFromLoginApi HTTP $status")
+                return@withContext false
+            }
+            if (!json.optBoolean("ok", false)) {
+                android.util.Log.w("AuthRepository", "syncPlaylistUrlFromLoginApi ok=false")
+                return@withContext false
+            }
+
+            val user = json.optJSONObject("user")
+                ?: run {
+                    android.util.Log.w("AuthRepository", "syncPlaylistUrlFromLoginApi: user kosong")
+                    return@withContext false
+                }
+
+            val appKey = user.optString("appKey", "").trim()
+            if (appKey.isBlank()) {
+                android.util.Log.w("AuthRepository", "syncPlaylistUrlFromLoginApi: appKey kosong")
+                return@withContext false
+            }
+
+            val playlistPath = json.optString("publicPlaylistUrl", "").trim()
+            if (playlistPath.isNotBlank()) {
+                val expectedSegment = "/public/users/${appKey}/"
+                val candidate = if (playlistPath.startsWith("http://") || playlistPath.startsWith("https://")) {
+                    try {
+                        URL(playlistPath).path
+                    } catch (_: Exception) {
+                        playlistPath
+                    }
+                } else {
+                    playlistPath
+                }
+                if (candidate.contains("/public/users/") && !candidate.contains(expectedSegment)) {
+                    android.util.Log.w(
+                        "AuthRepository",
+                        "syncPlaylistUrlFromLoginApi: publicPlaylistUrl tidak cocok appKey, pakai URL kanonik.",
+                    )
+                }
+            }
+
+            val expiresAtRaw = user.optString("expiresAt", "").trim()
+            val expiresAtMillis = parseExpiresAtMillis(expiresAtRaw)
+            val isExpired = expiresAtMillis > 0L && System.currentTimeMillis() >= expiresAtMillis
+
+            val playlistId = parsePlaylistIdFromLoginJson(json, user)
+            val fullPlaylistUrl = if (playlistId > 0L) {
+                buildPublicM3uByPlaylistId(usedBase, playlistId)
+            } else {
+                buildPublicPlaylistM3uUrl(usedBase, appKey)
+            }
+
+            saveSession(
+                context = context,
+                serverBaseUrl = usedBase,
+                username = username,
+                playlistUrl = fullPlaylistUrl,
+                appKey = appKey,
+                expiresAtRaw = expiresAtRaw,
+                expiresAtMillis = expiresAtMillis,
+                isExpiredServer = isExpired,
+                playlistId = playlistId,
+            )
+
+            ChannelRepository.addPlaylistUrl(context, fullPlaylistUrl)
+
+            android.util.Log.d(
+                "AuthRepository",
+                "Playlist URL disegarkan dari API /public/login: $fullPlaylistUrl",
+            )
+            true
+        }
+    }
+
     fun saveSession(
         context: Context,
         serverBaseUrl: String,
@@ -525,6 +732,8 @@ object AuthRepository {
         expiresAtRaw: String = "",
         expiresAtMillis: Long = 0L,
         isExpiredServer: Boolean = false,
+        /** >0: unduh dari `GET /public/m3u/{id}.m3u` (mql_manager). ≤0: pakai appKey playlist. */
+        playlistId: Long = -1L,
     ) {
         val normalizedServerBaseUrl = normalizeServerBaseUrl(serverBaseUrl)
         val normalizedRaw = expiresAtRaw.trim()
@@ -536,13 +745,22 @@ object AuthRepository {
             0L
         }
 
+        val keyTrim = appKey.trim()
+        val pid = playlistId.coerceAtLeast(-1L)
+        val playlistToStore = when {
+            pid > 0L -> buildPublicM3uByPlaylistId(normalizedServerBaseUrl, pid)
+            keyTrim.isNotBlank() -> buildPublicPlaylistM3uUrl(normalizedServerBaseUrl, keyTrim)
+            else -> playlistUrl.trim()
+        }
+
         val prefs = context.getSharedPreferences(PREFS_AUTH, Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean(KEY_LOGGED_IN, true)
             .putString(KEY_SERVER_BASE_URL, normalizedServerBaseUrl)
             .putString(KEY_USERNAME, username.trim())
-            .putString(KEY_PLAYLIST_URL, playlistUrl.trim())
-            .putString(KEY_APP_KEY, appKey.trim())
+            .putString(KEY_PLAYLIST_URL, playlistToStore)
+            .putString(KEY_APP_KEY, keyTrim)
+            .putLong(KEY_PLAYLIST_ID, if (pid > 0L) pid else -1L)
             .putString(KEY_EXPIRES_AT_RAW, normalizedRaw)
             .putLong(KEY_EXPIRES_AT_MILLIS, normalizedMillis)
             .putBoolean(KEY_IS_EXPIRED_SERVER, isExpiredServer)
@@ -559,6 +777,7 @@ object AuthRepository {
         prefs.edit()
             .putBoolean(KEY_LOGGED_IN, false)
             .remove(KEY_PLAYLIST_URL)
+            .remove(KEY_PLAYLIST_ID)
             .remove(KEY_APP_KEY)
             .remove(KEY_EXPIRES_AT_RAW)
             .remove(KEY_EXPIRES_AT_MILLIS)
