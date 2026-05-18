@@ -130,17 +130,11 @@ class ChannelListActivity : ComponentActivity() {
 
     private fun returnResult(channel: Channel) {
         ChannelRepository.loadChannels(this)
-        val liveKeys = ChannelRepository.getLiveScreenCategoryTabKeys()
         val overlayKey = selectedCategory.value.trim()
 
-        // Utamakan tab yang sedang aktif di overlay (Local, Sports, …). Channel.category
-        // dari playlist sering tidak sama persis dengan label tab Live → jangan hanya infer dari channel.
-        val tabKey = when (overlayKey) {
-            "all" -> ChannelRepository.resolveLiveScreenCategoryTabForChannel(channel)
-            "favorites", "recent" -> ChannelRepository.resolveLiveScreenCategoryTabForChannel(channel)
-            else -> liveKeys.find { it.equals(overlayKey, ignoreCase = true) && it != "ALL_CHANNELS" }
-                ?: ChannelRepository.resolveLiveScreenCategoryTabForChannel(channel)
-        }
+        // Tab overlay "all" tetap ALL_CHANNELS — jangan turunkan ke group-title channel (mis. Local)
+        // saat pilih RCTI/SCTV, supaya zapping & buka ulang overlay tidak loncat kategori.
+        val tabKey = ChannelRepository.liveGridTabKeyAfterOverlayChannelPick(overlayKey, channel)
 
         ChannelRepository.setPendingLiveGridCategoryTab(this, tabKey)
         ChannelRepository.setLastLiveGridTabWhenOpeningPlayer(this, tabKey)

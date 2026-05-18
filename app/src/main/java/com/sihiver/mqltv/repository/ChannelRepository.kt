@@ -286,6 +286,22 @@ object ChannelRepository {
      * Tab kategori overlay saat dibuka: pakai tab grid Live yang disimpan saat buka player;
      * fallback ke group-title channel jika tidak ada.
      */
+    /**
+     * Tab grid Live yang harus dipakai player (CH±, nomor, buka ulang overlay) setelah user
+     * memilih channel dari overlay — **jangan** ganti ke group-title channel bila tab overlay masih "Semua Channel".
+     */
+    fun liveGridTabKeyAfterOverlayChannelPick(overlayCategoryKey: String, channel: Channel): String {
+        return when (overlayCategoryKey.trim()) {
+            "all", "favorites", "recent" -> "ALL_CHANNELS"
+            else -> {
+                val keys = getLiveScreenCategoryTabKeys()
+                keys.find {
+                    it.equals(overlayCategoryKey, ignoreCase = true) && it != "ALL_CHANNELS"
+                } ?: resolveLiveScreenCategoryTabForChannel(channel)
+            }
+        }
+    }
+
     fun resolveInitialChannelListOverlayCategory(context: Context, channelId: Int): String {
         val keys = getChannelListOverlayCategoryKeys()
         val lastLive = peekLastLiveGridTabWhenOpeningPlayer(context)?.trim().orEmpty()
