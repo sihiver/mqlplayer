@@ -2,15 +2,12 @@ package com.sihiver.mqltv.playback
 
 import android.content.Context
 import android.widget.Toast
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.drm.DrmSessionManager
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.sihiver.mqltv.model.Channel
@@ -22,50 +19,6 @@ import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 @UnstableApi
 object LiveExoPlayerFactory {
 
-    fun createMediaItem(channel: Channel): MediaItem {
-        val streamUrl = channel.url.trim()
-        val licenseUrl = channel.drmLicenseUrl.trim()
-        val isDashMpd = streamUrl.endsWith(".mpd", ignoreCase = true)
-        if (licenseUrl.isBlank() || !isDashMpd) {
-            return MediaItem.fromUri(streamUrl)
-        }
-        return MediaItem.Builder()
-            .setUri(streamUrl)
-            .setMimeType(MimeTypes.APPLICATION_MPD)
-            .build()
-    }
-
-    fun createDrmSessionManager(context: Context, licenseUrl: String): DrmSessionManager {
-        val parts = licenseUrl.split("|")
-        val actualLicenseUrl = parts[0].trim()
-        val customHeaders = mutableMapOf<String, String>()
-        if (parts.size > 1) {
-            parts.drop(1).forEach { header ->
-                val keyValue = header.split("=", limit = 2)
-                if (keyValue.size == 2) {
-                    customHeaders[keyValue[0].trim()] = keyValue[1].trim()
-                }
-            }
-        }
-        val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-            .setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
-            .setConnectTimeoutMs(30000)
-            .setReadTimeoutMs(30000)
-
-        val drmCallback = androidx.media3.exoplayer.drm.HttpMediaDrmCallback(
-            actualLicenseUrl,
-            httpDataSourceFactory
-        )
-        if (customHeaders.isNotEmpty()) {
-            customHeaders.forEach { (key, value) ->
-                drmCallback.setKeyRequestProperty(key, value)
-            }
-        }
-        return androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
-            .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
-            .build(drmCallback)
-    }
-
     fun createExoPlayer(
         context: Context,
         channel: Channel,
@@ -74,7 +27,8 @@ object LiveExoPlayerFactory {
     ): ExoPlayer {
         ChannelRepository.loadChannels(context)
 
-        val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context)
+        val httpFactory = DrmPlaybackHelper.createHttpDataSourceFactory(channel.drmLicenseUrl)
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
         val renderersFactory = NextRenderersFactory(context).apply {
             setEnableDecoderFallback(true)
             val extensionMode = when (accelerationSetting) {
@@ -85,11 +39,7 @@ object LiveExoPlayerFactory {
             setExtensionRendererMode(extensionMode)
         }
 
-        val drmSessionManager = if (!channel.drmLicenseUrl.isBlank()) {
-            createDrmSessionManager(context, channel.drmLicenseUrl)
-        } else {
-            null
-        }
+        val drmSessionManager = DrmPlaybackHelper.createDrmSessionManager(channel.drmLicenseUrl)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
@@ -146,7 +96,7 @@ object LiveExoPlayerFactory {
         } catch (_: Exception) {
         }
 
-        val mediaItem = createMediaItem(channel)
+        val mediaItem = DrmPlaybackHelper.createMediaItem(channel)
         exo.setMediaItem(mediaItem)
         exo.prepare()
         return exo

@@ -54,7 +54,7 @@ fun AddChannelScreen(
     onCancel: () -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Manual", "Import M3U")
+    val tabs = listOf("Manual", "Import M3U", "Import JSON")
     
     Column(
         modifier = Modifier
@@ -100,6 +100,7 @@ fun AddChannelScreen(
         when (selectedTab) {
             0 -> ManualAddChannel(onChannelAdded, onCancel)
             1 -> ImportM3UScreen(onChannelAdded, onCancel)
+            2 -> ImportV216JsonScreen(onChannelAdded, onCancel)
         }
     }
 }
@@ -492,6 +493,229 @@ fun ImportM3UScreen(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF00BCD4)
                 )
+            ) {
+                Text("Import")
+            }
+        }
+    }
+}
+
+@Composable
+fun ImportV216JsonScreen(
+    onChannelAdded: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var jsonUrl by remember { mutableStateOf("") }
+    var jsonContent by remember { mutableStateOf("") }
+    var pickedFileUri by remember { mutableStateOf<Uri?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var importMethod by remember { mutableStateOf("url") }
+    val scope = rememberCoroutineScope()
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            if (uri != null) {
+                pickedFileUri = uri
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                } catch (_: Exception) {
+                }
+            }
+        },
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1A1A1A))
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = "Import JSON (format v216)",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+        )
+
+        Text(
+            text = "Format: objek dengan array \"info\" (name, hls, country_name, …). " +
+                "Contoh: http://iptv.mqlspot.my.id/v216.json",
+            color = Color.Gray,
+            fontSize = 13.sp,
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = { importMethod = "url" },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (importMethod == "url") Color(0xFF00BCD4) else Color.Gray,
+                ),
+            ) {
+                Text("From URL")
+            }
+            Button(
+                onClick = { importMethod = "paste" },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (importMethod == "paste") Color(0xFF00BCD4) else Color.Gray,
+                ),
+            ) {
+                Text("Paste")
+            }
+            Button(
+                onClick = { importMethod = "file" },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (importMethod == "file") Color(0xFF00BCD4) else Color.Gray,
+                ),
+            ) {
+                Text("File")
+            }
+        }
+
+        when (importMethod) {
+            "url" -> {
+                OutlinedTextField(
+                    value = jsonUrl,
+                    onValueChange = { jsonUrl = it },
+                    label = { Text("JSON URL", color = Color.Gray) },
+                    placeholder = { Text("http://iptv.mqlspot.my.id/v216.json", color = Color.DarkGray) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF00BCD4),
+                        unfocusedBorderColor = Color.Gray,
+                    ),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+            }
+            "paste" -> {
+                OutlinedTextField(
+                    value = jsonContent,
+                    onValueChange = { jsonContent = it },
+                    label = { Text("Paste JSON", color = Color.Gray) },
+                    placeholder = { Text("{ \"info\": [ ... ] }", color = Color.DarkGray) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF00BCD4),
+                        unfocusedBorderColor = Color.Gray,
+                    ),
+                    maxLines = 12,
+                )
+            }
+            else -> {
+                Button(
+                    onClick = {
+                        filePickerLauncher.launch(
+                            arrayOf("application/json", "text/json", "text/plain", "*/*"),
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00BCD4)),
+                ) {
+                    Text(if (pickedFileUri == null) "Choose .json file" else "Change file")
+                }
+                if (pickedFileUri != null) {
+                    Text(
+                        text = "Selected: $pickedFileUri",
+                        color = Color.Gray,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        }
+
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                color = Color(0xFF00BCD4),
+            )
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = onCancel,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
+            ) {
+                Text("Cancel")
+            }
+            Button(
+                onClick = {
+                    scope.launch {
+                        isLoading = true
+                        try {
+                            val count = when (importMethod) {
+                                "url" -> ChannelRepository.importFromV216JsonUrl(jsonUrl)
+                                "paste" -> ChannelRepository.importFromV216Json(jsonContent)
+                                else -> {
+                                    val uri = pickedFileUri
+                                    if (uri == null) {
+                                        0
+                                    } else {
+                                        val content = withContext(Dispatchers.IO) {
+                                            context.contentResolver.openInputStream(uri)
+                                                ?.bufferedReader()
+                                                ?.use { it.readText() }
+                                                .orEmpty()
+                                        }
+                                        ChannelRepository.importFromV216Json(
+                                            content,
+                                            source = uri.toString(),
+                                        )
+                                    }
+                                }
+                            }
+                            if (count > 0) {
+                                ChannelRepository.saveChannels(context)
+                                Toast.makeText(
+                                    context,
+                                    "$count channel diimpor dari JSON",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                onChannelAdded()
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Tidak ada channel di JSON (periksa format / URL)",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                context,
+                                "Import gagal: ${e.message ?: "unknown error"}",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        } finally {
+                            isLoading = false
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                enabled = !isLoading && (
+                    (importMethod == "url" && jsonUrl.isNotBlank()) ||
+                        (importMethod == "paste" && jsonContent.isNotBlank()) ||
+                        (importMethod == "file" && pickedFileUri != null)
+                    ),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00BCD4)),
             ) {
                 Text("Import")
             }

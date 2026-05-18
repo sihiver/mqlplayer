@@ -31,9 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
@@ -536,8 +534,8 @@ class PlayerActivityExo : ComponentActivity() {
 
             android.util.Log.d("PlayerActivityExo", "Playing channel: ${channel.name}, URL: ${channel.url}")
 
-            // Use default data source
-            val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this)
+            val httpFactory = com.sihiver.mqltv.playback.DrmPlaybackHelper.createHttpDataSourceFactory(channel.drmLicenseUrl)
+            val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpFactory)
 
             // Use NextRenderersFactory for MPEG-L2 audio support
             // EXTENSION_RENDERER_MODE_PREFER = FFmpeg preferred for audio, but MediaCodec for video
@@ -560,19 +558,14 @@ class PlayerActivityExo : ComponentActivity() {
                 )
             }
 
-            // Setup DRM if needed
-            val drmSessionManagerProvider = if (!channel.drmLicenseUrl.isBlank()) {
-                createDrmSessionManagerProvider(channel.drmLicenseUrl)
-            } else {
-                null
-            }
+            val drmSessionManager = com.sihiver.mqltv.playback.DrmPlaybackHelper
+                .createDrmSessionManager(channel.drmLicenseUrl)
 
-            // Create media source factory with DRM support
             val mediaSourceFactory = DefaultMediaSourceFactory(this)
                 .setDataSourceFactory(dataSourceFactory)
                 .apply {
-                    if (drmSessionManagerProvider != null) {
-                        setDrmSessionManagerProvider { drmSessionManagerProvider }
+                    if (drmSessionManager != null) {
+                        setDrmSessionManagerProvider { drmSessionManager }
                     }
                 }
 
@@ -839,19 +832,14 @@ class PlayerActivityExo : ComponentActivity() {
                 return
             }
             
-            // Send online presence for this channel
             presenceManager.sendOnlinePresence(channel.name, channel.url)
-            
-            // Stop current playback first
-            exoPlayer?.stop()
-            
-            // Set new media item
-            val mediaItem = createMediaItem(channel)
-            exoPlayer?.setMediaItem(mediaItem)
-            exoPlayer?.prepare()
-            exoPlayer?.play()
-            
-            android.util.Log.d("PlayerActivityExo", "Channel switched successfully")
+            presenceManager.stopHeartbeat()
+
+            // DRM & header HTTP berbeda per channel — rebuild player (bukan hanya ganti MediaItem).
+            releasePlayer()
+            initializePlayer()
+
+            android.util.Log.d("PlayerActivityExo", "Channel switched successfully (player rebuilt)")
             
         } catch (e: IllegalStateException) {
             android.util.Log.e("PlayerActivityExo", "Player state error when switching channel", e)
@@ -877,97 +865,8 @@ class PlayerActivityExo : ComponentActivity() {
         }
     }
 
-    private fun createDrmSessionManagerProvider(licenseUrl: String): androidx.media3.exoplayer.drm.DrmSessionManager {
-        android.util.Log.d("PlayerActivityExo", "=== DRM INIT ===")
-        android.util.Log.d("PlayerActivityExo", "License URL: $licenseUrl")
-        
-        // Toast untuk informasi
-        runOnUiThread {
-            android.widget.Toast.makeText(
-                this,
-                "Init DRM Widevine...",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
-        
-        try {
-            // Parse license URL untuk extract custom data header jika ada
-            // Format: https://lic.drmtoday.com/license-proxy-widevine/cenc/|x-dt-custom-data=JWT_TOKEN
-            val parts = licenseUrl.split("|")
-            val actualLicenseUrl = parts[0].trim()
-            val customHeaders = mutableMapOf<String, String>()
-            
-            if (parts.size > 1) {
-                // Parse custom headers dari format: key1=value1|key2=value2
-                parts.drop(1).forEach { header ->
-                    val keyValue = header.split("=", limit = 2)
-                    if (keyValue.size == 2) {
-                        customHeaders[keyValue[0].trim()] = keyValue[1].trim()
-                        android.util.Log.d("PlayerActivityExo", "Custom header: ${keyValue[0]} = ${keyValue[1].take(50)}...")
-                    }
-                }
-            }
-            
-            // Create DRM callback
-            val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                .setUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
-                .setConnectTimeoutMs(30000)
-                .setReadTimeoutMs(30000)
-            
-            val drmCallback = androidx.media3.exoplayer.drm.HttpMediaDrmCallback(
-                actualLicenseUrl,
-                httpDataSourceFactory
-            )
-            
-            // Set custom headers jika ada (untuk DRMtoday)
-            if (customHeaders.isNotEmpty()) {
-                customHeaders.forEach { (key, value) ->
-                    drmCallback.setKeyRequestProperty(key, value)
-                }
-                android.util.Log.d("PlayerActivityExo", "DRM callback with ${customHeaders.size} custom headers")
-            } else {
-                android.util.Log.d("PlayerActivityExo", "DRM callback without custom headers (token in URL)")
-            }
-
-            // Create DRM session manager
-            val drmSessionManager = androidx.media3.exoplayer.drm.DefaultDrmSessionManager.Builder()
-                .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER)
-                .build(drmCallback)
-            
-            android.util.Log.d("PlayerActivityExo", "DRM session manager created successfully")
-            
-            return drmSessionManager
-        } catch (e: Exception) {
-            android.util.Log.e("PlayerActivityExo", "Failed to create DRM manager", e)
-            runOnUiThread {
-                android.widget.Toast.makeText(
-                    this,
-                    "✗ DRM Init Error: ${e.message}",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
-            }
-            throw e
-        }
-    }
-
     private fun createMediaItem(channel: Channel): MediaItem {
-        val streamUrl = channel.url.trim()
-        val licenseUrl = channel.drmLicenseUrl.trim()
-        val isDashMpd = streamUrl.endsWith(".mpd", ignoreCase = true)
-        
-        // If no DRM or not DASH, use simple MediaItem
-        if (licenseUrl.isBlank() || !isDashMpd) {
-            android.util.Log.d("PlayerActivityExo", "Creating standard MediaItem for: ${channel.name}")
-            return MediaItem.fromUri(streamUrl)
-        }
-
-        // For DRM content, just return basic MediaItem with MIME type
-        // DRM is handled by DrmSessionManager in MediaSourceFactory
-        android.util.Log.d("PlayerActivityExo", "Creating DASH MediaItem for: ${channel.name}")
-        return MediaItem.Builder()
-            .setUri(streamUrl)
-            .setMimeType(MimeTypes.APPLICATION_MPD)
-            .build()
+        return com.sihiver.mqltv.playback.DrmPlaybackHelper.createMediaItem(channel)
     }
 
     @Composable

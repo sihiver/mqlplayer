@@ -11,6 +11,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import org.json.JSONObject
 import java.util.HashSet
 import java.util.Locale
 
@@ -440,6 +441,116 @@ object ChannelRepository {
             }
         }
     }
+
+    /**
+     * Impor playlist JSON format v216 (mis. `http://iptv.mqlspot.my.id/v216.json`):
+     * `{ "country_name", "country", "info": [ { "name", "hls", "country_name", "url_license", ... } ] }`
+     */
+    suspend fun importFromV216Json(jsonContent: String, source: String = "paste"): Int {
+        return withContext(Dispatchers.IO) {
+            importFromV216JsonBlocking(jsonContent, source)
+        }
+    }
+
+    suspend fun importFromV216JsonUrl(url: String): Int {
+        return withContext(Dispatchers.IO) {
+            try {
+                val connection = (URL(url.trim()).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15_000
+                    readTimeout = 15_000
+                    setRequestProperty("Accept", "application/json")
+                }
+                val status = connection.responseCode
+                val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                val content = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                connection.disconnect()
+                if (status !in 200..299 || content.isBlank()) {
+                    android.util.Log.e("ChannelRepository", "importFromV216JsonUrl HTTP $status")
+                    return@withContext 0
+                }
+                importFromV216JsonBlocking(content, url.trim())
+            } catch (e: Exception) {
+                android.util.Log.e("ChannelRepository", "importFromV216JsonUrl failed", e)
+                0
+            }
+        }
+    }
+
+    private fun importFromV216JsonBlocking(jsonContent: String, source: String): Int {
+        val trimmed = jsonContent.trim()
+        if (trimmed.isEmpty()) return 0
+
+        val root = try {
+            JSONObject(trimmed)
+        } catch (e: Exception) {
+            android.util.Log.e("ChannelRepository", "Invalid v216 JSON", e)
+            return 0
+        }
+
+        val info = root.optJSONArray("info") ?: run {
+            android.util.Log.w("ChannelRepository", "v216 JSON: missing \"info\" array")
+            return 0
+        }
+
+        val normalizedSource = source.trim().ifBlank { "v216-json" }
+        var count = 0
+
+        for (i in 0 until info.length()) {
+            val item = info.optJSONObject(i) ?: continue
+            val streamUrl = item.optString("hls", "").trim()
+            if (streamUrl.isBlank()) continue
+
+            val name = item.optString("name", "").trim().ifBlank { "Imported" }
+            val category = resolveV216JsonCategory(item)
+            val drmLicenseUrl = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveV216JsonDrmLicenseUrl(item)
+
+            val existingIndex = customChannels.indexOfFirst {
+                it.url == streamUrl && it.source == normalizedSource
+            }
+            if (existingIndex >= 0) {
+                val existing = customChannels[existingIndex]
+                if (existing.drmLicenseUrl != drmLicenseUrl) {
+                    customChannels[existingIndex] = existing.copy(drmLicenseUrl = drmLicenseUrl)
+                    count++
+                }
+                continue
+            }
+
+            addChannel(
+                Channel(
+                    id = 0,
+                    name = name,
+                    url = streamUrl,
+                    logo = "",
+                    category = category,
+                    source = normalizedSource,
+                    drmLicenseUrl = drmLicenseUrl,
+                ),
+            )
+            count++
+        }
+
+        android.util.Log.d("ChannelRepository", "importFromV216Json: added $count channels (source=$normalizedSource)")
+        return count
+    }
+
+    private fun resolveV216JsonCategory(item: JSONObject): String {
+        val countryName = item.optString("country_name", "").trim()
+        if (countryName.isNotBlank() && !countryName.equals("none", ignoreCase = true)) {
+            return countryName
+        }
+        val namespace = item.optString("namespace", "").trim()
+        if (namespace.isNotBlank() && !namespace.equals("none", ignoreCase = true)) {
+            return namespace
+        }
+        val alpha = item.optString("alpha_2_code", "").trim()
+        if (alpha.isNotBlank() && !alpha.equals("none", ignoreCase = true)) {
+            return alpha
+        }
+        return "Imported"
+    }
+
     
     /**
      * Unduh ulang playlist dari URL.
