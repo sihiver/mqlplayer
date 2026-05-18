@@ -545,7 +545,7 @@ fun ImportV216JsonScreen(
         )
 
         Text(
-            text = "Format: objek dengan array \"info\" (name, hls, country_name, …). " +
+            text = "Format: objek dengan array \"info\" (name, hls, logo, country_name, …). " +
                 "Contoh: http://iptv.mqlspot.my.id/v216.json",
             color = Color.Gray,
             fontSize = 13.sp,

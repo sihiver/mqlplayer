@@ -444,7 +444,7 @@ object ChannelRepository {
 
     /**
      * Impor playlist JSON format v216 (mis. `http://iptv.mqlspot.my.id/v216.json`):
-     * `{ "country_name", "country", "info": [ { "name", "hls", "country_name", "url_license", ... } ] }`
+     * `{ "country_name", "country", "info": [ { "name", "hls", "logo", "country_name", "url_license", ... } ] }`
      */
     suspend fun importFromV216Json(jsonContent: String, source: String = "paste"): Int {
         return withContext(Dispatchers.IO) {
@@ -503,6 +503,7 @@ object ChannelRepository {
 
             val name = item.optString("name", "").trim().ifBlank { "Imported" }
             val category = resolveV216JsonCategory(item)
+            val logo = resolveV216JsonLogo(item)
             val drmLicenseUrl = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveV216JsonDrmLicenseUrl(item)
 
             val existingIndex = customChannels.indexOfFirst {
@@ -510,8 +511,14 @@ object ChannelRepository {
             }
             if (existingIndex >= 0) {
                 val existing = customChannels[existingIndex]
-                if (existing.drmLicenseUrl != drmLicenseUrl) {
-                    customChannels[existingIndex] = existing.copy(drmLicenseUrl = drmLicenseUrl)
+                val updated = existing.copy(
+                    name = name,
+                    category = category,
+                    logo = logo,
+                    drmLicenseUrl = drmLicenseUrl,
+                )
+                if (updated != existing) {
+                    customChannels[existingIndex] = updated
                     count++
                 }
                 continue
@@ -522,7 +529,7 @@ object ChannelRepository {
                     id = 0,
                     name = name,
                     url = streamUrl,
-                    logo = "",
+                    logo = logo,
                     category = category,
                     source = normalizedSource,
                     drmLicenseUrl = drmLicenseUrl,
@@ -572,13 +579,14 @@ object ChannelRepository {
                     val streamUrl = item.optString("hls", "").trim()
                     if (streamUrl.isBlank()) continue
                     val correctDrm = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveV216JsonDrmLicenseUrl(item)
+                    val logo = resolveV216JsonLogo(item)
                     val idx = customChannels.indexOfFirst { it.url == streamUrl }
                     if (idx < 0) continue
                     val existing = customChannels[idx]
                     if (!com.sihiver.mqltv.playback.DrmPlaybackHelper.needsVerspectiveDrmRepair(existing.drmLicenseUrl)) {
                         continue
                     }
-                    customChannels[idx] = existing.copy(drmLicenseUrl = correctDrm)
+                    customChannels[idx] = existing.copy(drmLicenseUrl = correctDrm, logo = logo)
                     fixed = true
                     android.util.Log.d(
                         "ChannelRepository",
@@ -617,6 +625,19 @@ object ChannelRepository {
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun resolveV216JsonLogo(item: JSONObject): String {
+        val logo = item.optString("logo", "").trim()
+        if (logo.isBlank() || logo.equals("none", ignoreCase = true)) {
+            return ""
+        }
+        if (logo.startsWith("http://", ignoreCase = true) ||
+            logo.startsWith("https://", ignoreCase = true)
+        ) {
+            return logo
+        }
+        return ""
     }
 
     private fun resolveV216JsonCategory(item: JSONObject): String {
