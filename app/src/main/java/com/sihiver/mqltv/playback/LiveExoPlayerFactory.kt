@@ -27,7 +27,8 @@ object LiveExoPlayerFactory {
     ): ExoPlayer {
         ChannelRepository.loadChannels(context)
 
-        val httpFactory = DrmPlaybackHelper.createHttpDataSourceFactory(channel.drmLicenseUrl)
+        val effectiveDrm = DrmPlaybackHelper.sanitizeForPlayback(channel.drmLicenseUrl)
+        val httpFactory = DrmPlaybackHelper.createHttpDataSourceFactory(effectiveDrm)
         val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
         val renderersFactory = NextRenderersFactory(context).apply {
             setEnableDecoderFallback(true)
@@ -39,7 +40,7 @@ object LiveExoPlayerFactory {
             setExtensionRendererMode(extensionMode)
         }
 
-        val drmSessionManager = DrmPlaybackHelper.createDrmSessionManager(channel.drmLicenseUrl)
+        val drmSessionManager = DrmPlaybackHelper.createDrmSessionManager(effectiveDrm)
 
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)

@@ -535,6 +535,90 @@ object ChannelRepository {
         return count
     }
 
+    /**
+     * Perbaiki channel yang masih menyimpan URL Widevine Verspective (bug impor lama)
+     * dengan mengambil ulang ClearKey dari JSON v216.
+     */
+    suspend fun repairChannelDrmIfStaleVerspective(context: Context, channelId: Int): Boolean {
+        return withContext(Dispatchers.IO) {
+            repairChannelDrmIfStaleVerspectiveBlocking(context, channelId)
+        }
+    }
+
+    fun repairChannelDrmIfStaleVerspectiveBlocking(context: Context, channelId: Int): Boolean {
+        val channel = getChannelById(channelId) ?: return false
+        if (!com.sihiver.mqltv.playback.DrmPlaybackHelper.needsVerspectiveDrmRepair(channel.drmLicenseUrl)) {
+            return false
+        }
+
+        val jsonSources = buildList {
+            channel.source.trim().takeIf { isV216JsonSource(it) }?.let { add(it) }
+            addAll(getPlaylistUrls(context).filter { isV216JsonSource(it) })
+            add("http://iptv.mqlspot.my.id/v216.json")
+        }.distinct()
+
+        android.util.Log.d(
+            "ChannelRepository",
+            "Repairing stale Verspective DRM for '${channel.name}' from ${jsonSources.size} JSON source(s)",
+        )
+
+        for (src in jsonSources) {
+            try {
+                val content = fetchTextUrl(src) ?: continue
+                val info = JSONObject(content.trim()).optJSONArray("info") ?: continue
+                var fixed = false
+                for (i in 0 until info.length()) {
+                    val item = info.optJSONObject(i) ?: continue
+                    val streamUrl = item.optString("hls", "").trim()
+                    if (streamUrl.isBlank()) continue
+                    val correctDrm = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveV216JsonDrmLicenseUrl(item)
+                    val idx = customChannels.indexOfFirst { it.url == streamUrl }
+                    if (idx < 0) continue
+                    val existing = customChannels[idx]
+                    if (!com.sihiver.mqltv.playback.DrmPlaybackHelper.needsVerspectiveDrmRepair(existing.drmLicenseUrl)) {
+                        continue
+                    }
+                    customChannels[idx] = existing.copy(drmLicenseUrl = correctDrm)
+                    fixed = true
+                    android.util.Log.d(
+                        "ChannelRepository",
+                        "Repaired DRM for '${existing.name}' -> ClearKey",
+                    )
+                }
+                if (fixed) {
+                    saveChannels(context)
+                    val updated = getChannelById(channelId)
+                    return updated?.drmLicenseUrl?.contains("clearkey:", ignoreCase = true) == true
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("ChannelRepository", "DRM repair failed for $src", e)
+            }
+        }
+        return false
+    }
+
+    private fun isV216JsonSource(url: String): Boolean {
+        val u = url.trim()
+        return u.startsWith("http") && (u.endsWith(".json", ignoreCase = true) || u.contains("v216", ignoreCase = true))
+    }
+
+    private fun fetchTextUrl(url: String): String? {
+        val connection = (URL(url.trim()).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15_000
+            readTimeout = 15_000
+            setRequestProperty("Accept", "application/json")
+        }
+        return try {
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val content = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status in 200..299 && content.isNotBlank()) content else null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private fun resolveV216JsonCategory(item: JSONObject): String {
         val countryName = item.optString("country_name", "").trim()
         if (countryName.isNotBlank() && !countryName.equals("none", ignoreCase = true)) {

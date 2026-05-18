@@ -70,7 +70,10 @@ object DrmPlaybackHelper {
     }
 
     fun createPlaybackDrm(drmLicenseUrl: String): ParsedPlaybackDrm {
-        val raw = drmLicenseUrl.trim()
+        return createPlaybackDrmInternal(sanitizeForPlayback(drmLicenseUrl))
+    }
+
+    private fun createPlaybackDrmInternal(raw: String): ParsedPlaybackDrm {
         if (raw.isBlank()) {
             return ParsedPlaybackDrm(null, emptyMap())
         }
@@ -87,6 +90,13 @@ object DrmPlaybackHelper {
             drmPart.startsWith(PREFIX_CLEARKEY, ignoreCase = true) -> {
                 createClearKeyFromPayload(drmPart.removePrefix(PREFIX_CLEARKEY).trim())
             }
+            isStaleVerspectiveWidevine(drmPart) -> {
+                android.util.Log.e(
+                    "DrmPlaybackHelper",
+                    "DRM Widevine Verspective diabaikan (channel harus ClearKey). Impor ulang JSON v216.",
+                )
+                null
+            }
             drmPart.startsWith("http://", ignoreCase = true) ||
                 drmPart.startsWith("https://", ignoreCase = true) -> {
                 createWidevine(drmPart)
@@ -100,6 +110,25 @@ object DrmPlaybackHelper {
 
     fun createDrmSessionManager(drmLicenseUrl: String): DrmSessionManager? {
         return createPlaybackDrm(drmLicenseUrl).drmSessionManager
+    }
+
+    /** Channel lama tersimpan dengan URL Widevine Verspective padahal stream pakai ClearKey. */
+    fun isStaleVerspectiveWidevine(drmPart: String): Boolean {
+        val p = drmPart.trim()
+        return p.contains("verspective.net", ignoreCase = true) &&
+            !p.startsWith(PREFIX_CLEARKEY, ignoreCase = true)
+    }
+
+    fun needsVerspectiveDrmRepair(drmLicenseUrl: String): Boolean {
+        val (drmPart, _) = splitDrmAndHeaders(drmLicenseUrl.trim())
+        return isStaleVerspectiveWidevine(drmPart)
+    }
+
+    /** Jangan panggil license server Verspective untuk data DRM yang salah. */
+    fun sanitizeForPlayback(drmLicenseUrl: String): String {
+        val (drmPart, streamHeaders) = splitDrmAndHeaders(drmLicenseUrl.trim())
+        if (!isStaleVerspectiveWidevine(drmPart)) return drmLicenseUrl.trim()
+        return encodeDrmLicenseUrl("", streamHeaders)
     }
 
     /** Gabungkan bagian DRM + header stream untuk disimpan di [Channel.drmLicenseUrl]. */

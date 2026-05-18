@@ -43,6 +43,7 @@ import androidx.media3.ui.PlayerView
 import com.sihiver.mqltv.model.Channel
 import com.sihiver.mqltv.repository.AuthRepository
 import com.sihiver.mqltv.repository.ChannelRepository
+import kotlinx.coroutines.runBlocking
 import com.sihiver.mqltv.service.PresenceManager
 import io.github.anilbeesetti.nextlib.media3ext.ffdecoder.NextRenderersFactory
 import androidx.lifecycle.lifecycleScope
@@ -519,10 +520,24 @@ class PlayerActivityExo : ComponentActivity() {
             val prefs = getSharedPreferences("video_settings", Context.MODE_PRIVATE)
             val accelerationSetting = prefs.getString("acceleration", "HW (Hardware)") ?: "HW (Hardware)"
 
-            // Load channels first
             ChannelRepository.loadChannels(this)
 
-            // Get channel from repository
+            val channelBeforeRepair = ChannelRepository.getChannelById(channelId)
+            if (channelBeforeRepair != null &&
+                com.sihiver.mqltv.playback.DrmPlaybackHelper.needsVerspectiveDrmRepair(channelBeforeRepair.drmLicenseUrl)
+            ) {
+                val repaired = runBlocking {
+                    ChannelRepository.repairChannelDrmIfStaleVerspective(this@PlayerActivityExo, channelId)
+                }
+                if (!repaired) {
+                    android.widget.Toast.makeText(
+                        this,
+                        "DRM channel perlu diperbaiki. Impor ulang playlist JSON v216.",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+
             val channel = ChannelRepository.getChannelById(channelId)
 
             if (channel == null) {
@@ -534,7 +549,10 @@ class PlayerActivityExo : ComponentActivity() {
 
             android.util.Log.d("PlayerActivityExo", "Playing channel: ${channel.name}, URL: ${channel.url}")
 
-            val httpFactory = com.sihiver.mqltv.playback.DrmPlaybackHelper.createHttpDataSourceFactory(channel.drmLicenseUrl)
+            val effectiveDrm = com.sihiver.mqltv.playback.DrmPlaybackHelper
+                .sanitizeForPlayback(channel.drmLicenseUrl)
+            val httpFactory = com.sihiver.mqltv.playback.DrmPlaybackHelper
+                .createHttpDataSourceFactory(effectiveDrm)
             val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpFactory)
 
             // Use NextRenderersFactory for MPEG-L2 audio support
@@ -559,7 +577,7 @@ class PlayerActivityExo : ComponentActivity() {
             }
 
             val drmSessionManager = com.sihiver.mqltv.playback.DrmPlaybackHelper
-                .createDrmSessionManager(channel.drmLicenseUrl)
+                .createDrmSessionManager(effectiveDrm)
 
             val mediaSourceFactory = DefaultMediaSourceFactory(this)
                 .setDataSourceFactory(dataSourceFactory)
