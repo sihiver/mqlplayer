@@ -95,7 +95,9 @@
         <activity
             android:name=".AddChannelActivity"
             android:exported="false"
-            android:label="Add Channel" />
+            android:label="Add Channel"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
+            android:screenOrientation="unspecified" />
     </application>
 
 </manifest>

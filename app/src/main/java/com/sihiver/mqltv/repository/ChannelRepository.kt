@@ -750,6 +750,23 @@ object ChannelRepository {
                     0L
                 }
 
+                val trimmedContent = content.trim()
+                if (isV216JsonSource(normalizedUrl) || trimmedContent.startsWith("{")) {
+                    val count = importFromV216JsonBlocking(trimmedContent, normalizedUrl)
+                    saveChannels(context)
+                    prefs.edit().apply {
+                        putString(hashKey, sha256Hex(trimmedContent))
+                        if (newEtag.isNotEmpty()) putString(etagKey, newEtag)
+                        if (newLastModified > 0L) putLong(lastModifiedKey, newLastModified)
+                        apply()
+                    }
+                    android.util.Log.d(
+                        "ChannelRepository",
+                        "v216 JSON playlist refreshed: $count channel(s) updated ($normalizedUrl)",
+                    )
+                    return@withContext
+                }
+
                 val newHash = sha256Hex(content)
                 if (previousHash.isNotEmpty() && newHash == previousHash) {
                     // Content identical: no need to re-parse or touch channels.

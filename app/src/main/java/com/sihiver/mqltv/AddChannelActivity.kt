@@ -13,10 +13,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -60,8 +63,9 @@ fun AddChannelScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF1A1A1A))
+            .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
-        // Top App Bar
         TopAppBar(
             title = {
                 Text(
@@ -76,11 +80,19 @@ fun AddChannelScreen(
             )
         )
         
-        // Tab Row
-        TabRow(
+        ScrollableTabRow(
             selectedTabIndex = selectedTab,
             containerColor = Color(0xFF2A2A2A),
-            contentColor = Color(0xFF00BCD4)
+            contentColor = Color(0xFF00BCD4),
+            edgePadding = 8.dp,
+            indicator = { tabPositions ->
+                if (selectedTab < tabPositions.size) {
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                        color = Color(0xFF00BCD4),
+                    )
+                }
+            },
         ) {
             tabs.forEachIndexed { index, title ->
                 Tab(
@@ -89,9 +101,10 @@ fun AddChannelScreen(
                     text = {
                         Text(
                             text = title,
-                            color = if (selectedTab == index) Color(0xFF00BCD4) else Color.Gray
+                            color = if (selectedTab == index) Color(0xFF00BCD4) else Color.Gray,
+                            fontSize = 13.sp,
                         )
-                    }
+                    },
                 )
             }
         }
@@ -663,7 +676,13 @@ fun ImportV216JsonScreen(
                         isLoading = true
                         try {
                             val count = when (importMethod) {
-                                "url" -> ChannelRepository.importFromV216JsonUrl(jsonUrl)
+                                "url" -> {
+                                    val url = jsonUrl.trim()
+                                    if (url.isNotBlank()) {
+                                        ChannelRepository.addPlaylistUrl(context, url)
+                                    }
+                                    ChannelRepository.importFromV216JsonUrl(url)
+                                }
                                 "paste" -> ChannelRepository.importFromV216Json(jsonContent)
                                 else -> {
                                     val uri = pickedFileUri

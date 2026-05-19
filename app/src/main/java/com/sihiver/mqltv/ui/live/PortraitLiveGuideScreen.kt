@@ -70,6 +70,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.sihiver.mqltv.model.Channel
+import com.sihiver.mqltv.playback.DrmPlaybackHelper
 import com.sihiver.mqltv.playback.LiveExoPlayerFactory
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.service.PresenceManager
@@ -622,6 +623,21 @@ private fun PortraitInlinePlayer(
 ) {
     val context = LocalContext.current
     var isBuffering by remember(channel?.id) { mutableStateOf(true) }
+    var playbackChannel by remember(channel?.id) { mutableStateOf<Channel?>(null) }
+
+    LaunchedEffect(channel?.id) {
+        if (channel == null) {
+            playbackChannel = null
+            return@LaunchedEffect
+        }
+        var resolved = channel
+        if (DrmPlaybackHelper.needsVerspectiveDrmRepair(resolved.drmLicenseUrl)) {
+            ChannelRepository.repairChannelDrmIfStaleVerspective(context, resolved.id)
+            ChannelRepository.loadChannels(context)
+            resolved = ChannelRepository.getChannelById(resolved.id) ?: resolved
+        }
+        playbackChannel = resolved
+    }
 
     val playerView = remember(context) {
         PlayerView(context).apply {
@@ -631,8 +647,9 @@ private fun PortraitInlinePlayer(
         }
     }
 
-    DisposableEffect(channel?.id) {
-        if (channel == null || channel.url.isBlank()) {
+    DisposableEffect(playbackChannel?.id) {
+        val ch = playbackChannel
+        if (ch == null || ch.url.isBlank()) {
             playerView.player = null
             presenceManager.stopHeartbeat()
             return@DisposableEffect onDispose { }
@@ -640,7 +657,7 @@ private fun PortraitInlinePlayer(
 
         val exo = LiveExoPlayerFactory.createExoPlayer(
             context = context,
-            channel = channel,
+            channel = ch,
             presenceManager = presenceManager,
             accelerationSetting = accelerationSetting,
         )
