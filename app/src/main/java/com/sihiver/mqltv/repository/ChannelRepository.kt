@@ -11,6 +11,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.HashSet
 import java.util.Locale
@@ -493,53 +494,120 @@ object ChannelRepository {
             return 0
         }
 
-        val normalizedSource = source.trim().ifBlank { "v216-json" }
-        var count = 0
+        return syncV216JsonChannelsBlocking(info, source)
+    }
 
+    /**
+     * Sinkron penuh playlist v216: tambah / ubah / hapus channel yang tidak ada lagi di JSON.
+     */
+    /** Tanpa query window `?start=&end=` agar iNews dll. tetap cocok saat refresh JSON. */
+    private fun streamUrlIdentity(url: String): String {
+        val trimmed = url.trim()
+        return if (com.sihiver.mqltv.playback.DrmPlaybackHelper.isDashMpdUrl(trimmed)) {
+            trimmed.substringBefore('#').substringBefore('?')
+        } else {
+            trimmed
+        }
+    }
+
+    private fun syncV216JsonChannelsBlocking(info: JSONArray, source: String): Int {
+        val normalizedSource = source.trim().ifBlank { "v216-json" }
+        val incoming = parseV216JsonChannels(info, normalizedSource)
+        if (incoming.isEmpty()) return 0
+
+        val incomingByIdentity = incoming.associateBy { streamUrlIdentity(it.url) }
+        var changed = 0
+
+        val beforeSize = customChannels.size
+        customChannels.removeAll { ch ->
+            ch.source == normalizedSource &&
+                !incomingByIdentity.containsKey(streamUrlIdentity(ch.url))
+        }
+        val removedCount = beforeSize - customChannels.size
+        if (removedCount > 0) changed += removedCount
+
+        for (incomingCh in incoming) {
+            val identity = streamUrlIdentity(incomingCh.url)
+            val existingIndex = customChannels.indexOfFirst {
+                it.source == normalizedSource && streamUrlIdentity(it.url) == identity
+            }
+            if (existingIndex >= 0) {
+                val existing = customChannels[existingIndex]
+                val updated = existing.copy(
+                    url = incomingCh.url,
+                    name = incomingCh.name,
+                    category = incomingCh.category,
+                    logo = incomingCh.logo,
+                    drmLicenseUrl = incomingCh.drmLicenseUrl,
+                )
+                if (updated != existing) {
+                    customChannels[existingIndex] = updated
+                    changed++
+                }
+            } else {
+                addChannel(incomingCh)
+                changed++
+            }
+        }
+
+        android.util.Log.d(
+            "ChannelRepository",
+            "v216 JSON sync: $changed change(s) (source=$normalizedSource, total=${incoming.size})",
+        )
+        return changed
+    }
+
+    private fun parseV216JsonChannels(info: JSONArray, normalizedSource: String): List<Channel> {
+        val result = mutableListOf<Channel>()
         for (i in 0 until info.length()) {
             val item = info.optJSONObject(i) ?: continue
             val streamUrl = item.optString("hls", "").trim()
             if (streamUrl.isBlank()) continue
 
-            val name = item.optString("name", "").trim().ifBlank { "Imported" }
-            val category = resolveV216JsonCategory(item)
-            val logo = resolveV216JsonLogo(item)
-            val drmLicenseUrl = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveV216JsonDrmLicenseUrl(item)
-
-            val existingIndex = customChannels.indexOfFirst {
-                it.url == streamUrl && it.source == normalizedSource
-            }
-            if (existingIndex >= 0) {
-                val existing = customChannels[existingIndex]
-                val updated = existing.copy(
-                    name = name,
-                    category = category,
-                    logo = logo,
-                    drmLicenseUrl = drmLicenseUrl,
-                )
-                if (updated != existing) {
-                    customChannels[existingIndex] = updated
-                    count++
-                }
-                continue
-            }
-
-            addChannel(
-                Channel(
-                    id = 0,
-                    name = name,
-                    url = streamUrl,
-                    logo = logo,
-                    category = category,
-                    source = normalizedSource,
-                    drmLicenseUrl = drmLicenseUrl,
+            result.add(
+                com.sihiver.mqltv.playback.DrmPlaybackHelper.applyV216ImportOverrides(
+                    Channel(
+                        id = 0,
+                        name = item.optString("name", "").trim().ifBlank { "Imported" },
+                        url = streamUrl,
+                        logo = resolveV216JsonLogo(item),
+                        category = resolveV216JsonCategory(item),
+                        source = normalizedSource,
+                        drmLicenseUrl = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveV216JsonDrmLicenseUrl(item),
+                    ),
                 ),
             )
-            count++
         }
+        return result
+    }
 
-        android.util.Log.d("ChannelRepository", "importFromV216Json: added $count channels (source=$normalizedSource)")
-        return count
+    /**
+     * Semua URL yang harus di-refresh (M3U akun, prefs, dan sumber JSON dari channel lama).
+     */
+    fun collectPlaylistRefreshUrls(context: Context): List<String> {
+        loadChannels(context)
+        val authUrl = AuthRepository.getResolvedPlaylistUrl(context).trim()
+        val loggedIn = AuthRepository.isLoggedIn(context)
+        val skipSampleWhileAccount = loggedIn && authUrl.isNotBlank()
+
+        val ordered = LinkedHashSet<String>()
+        if (authUrl.isNotBlank()) {
+            ordered.add(authUrl)
+        }
+        getPlaylistUrls(context).forEach { u ->
+            val t = u.trim()
+            if (t.isEmpty()) return@forEach
+            if (skipSampleWhileAccount && t == DEFAULT_SAMPLE_PLAYLIST_URL) return@forEach
+            ordered.add(t)
+        }
+        customChannels
+            .map { it.source.trim() }
+            .filter { isV216JsonSource(it) }
+            .forEach { jsonSource ->
+                ordered.add(jsonSource)
+                addPlaylistUrl(context, jsonSource)
+            }
+        return ordered.toList()
     }
 
     /**
@@ -760,9 +828,10 @@ object ChannelRepository {
                         if (newLastModified > 0L) putLong(lastModifiedKey, newLastModified)
                         apply()
                     }
+                    _channelsRevision.value = _channelsRevision.value + 1
                     android.util.Log.d(
                         "ChannelRepository",
-                        "v216 JSON playlist refreshed: $count channel(s) updated ($normalizedUrl)",
+                        "v216 JSON playlist refreshed: $count change(s) ($normalizedUrl)",
                     )
                     return@withContext
                 }
@@ -971,23 +1040,15 @@ object ChannelRepository {
             }
         }
 
-        val authUrl = AuthRepository.getResolvedPlaylistUrl(context).trim()
-        val loggedIn = AuthRepository.isLoggedIn(context)
-        val skipSampleWhileAccount =
-            loggedIn && authUrl.isNotBlank()
-        val ordered = LinkedHashSet<String>().apply {
-            if (authUrl.isNotBlank()) add(authUrl)
-            getPlaylistUrls(context).forEach { u ->
-                val t = u.trim()
-                if (t.isEmpty()) return@forEach
-                if (skipSampleWhileAccount && t == DEFAULT_SAMPLE_PLAYLIST_URL) return@forEach
-                add(t)
-            }
-        }
+        val ordered = collectPlaylistRefreshUrls(context)
         if (ordered.isEmpty()) {
             loadChannels(context)
             return
         }
+        android.util.Log.d(
+            "ChannelRepository",
+            "syncAllPlaylists: refreshing ${ordered.size} URL(s) (json=${ordered.count { isV216JsonSource(it) }})",
+        )
         withContext(Dispatchers.IO) {
             ordered.forEach { url ->
                 refreshPlaylistFromServer(context, url, forceFullFetch)

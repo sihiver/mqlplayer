@@ -538,7 +538,7 @@ class PlayerActivityExo : ComponentActivity() {
                 }
             }
 
-            val channel = ChannelRepository.getChannelById(channelId)
+            var channel = ChannelRepository.getChannelById(channelId)
 
             if (channel == null) {
                 android.util.Log.e("PlayerActivityExo", "Channel not found with ID: $channelId")
@@ -546,6 +546,8 @@ class PlayerActivityExo : ComponentActivity() {
                 finish()
                 return
             }
+
+            channel = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveChannelForPlayback(channel)
 
             android.util.Log.d("PlayerActivityExo", "Playing channel: ${channel.name}, URL: ${channel.url}")
 

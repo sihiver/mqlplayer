@@ -636,7 +636,7 @@ private fun PortraitInlinePlayer(
             ChannelRepository.loadChannels(context)
             resolved = ChannelRepository.getChannelById(resolved.id) ?: resolved
         }
-        playbackChannel = resolved
+        playbackChannel = DrmPlaybackHelper.resolveChannelForPlayback(resolved)
     }
 
     val playerView = remember(context) {

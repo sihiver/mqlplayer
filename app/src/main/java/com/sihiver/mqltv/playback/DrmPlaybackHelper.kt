@@ -31,6 +31,9 @@ object DrmPlaybackHelper {
     private const val PREFIX_CLEARKEY_HEX = "clearkey-hex:"
     private const val HDR_SEGMENT = "hdr:"
 
+    /** Window live DASH lama (channel tersimpan sebelum v216 tanpa query di JSON). */
+    private const val LIVE_WINDOW_SEC = 7800L
+
     data class ParsedPlaybackDrm(
         val drmSessionManager: DrmSessionManager?,
         val streamHeaders: Map<String, String>,
@@ -56,17 +59,89 @@ object DrmPlaybackHelper {
         return factory
     }
 
+    /** DASH manifest (.mpd), termasuk URL dengan query `?start=&end=` seperti iNews. */
+    fun isDashMpdUrl(streamUrl: String): Boolean {
+        val path = streamUrl.trim().substringBefore('#').substringBefore('?')
+        return path.endsWith(".mpd", ignoreCase = true)
+    }
+
+    /** URL manifest tanpa window `?start=` / `?end=` untuk unduh MPD. */
+    fun manifestUrlForPlayback(streamUrl: String): String {
+        val trimmed = streamUrl.trim()
+        return if (isDashMpdUrl(trimmed)) {
+            trimmed.substringBefore('#').substringBefore('?')
+        } else {
+            trimmed
+        }
+    }
+
+    /**
+     * Normalisasi URL stream sebelum putar/impor.
+     * DRM + header mengikuti [resolveV216JsonDrmLicenseUrl] (sama field v216: `url_license`, `header_iptv`).
+     */
+    fun resolveChannelForPlayback(channel: Channel): Channel {
+        val url = channel.url.trim()
+        if (!isDashMpdUrl(url)) return channel
+        val normalized = when {
+            url.contains("start=", ignoreCase = true) -> resolveLiveWindowUrl(url)
+            else -> manifestUrlForPlayback(url)
+        }
+        return if (normalized != url) channel.copy(url = normalized) else channel
+    }
+
+    fun applyV216ImportOverrides(channel: Channel): Channel = resolveChannelForPlayback(channel)
+
+    private fun resolveLiveWindowUrl(url: String): String {
+        if (!url.contains("start=", ignoreCase = true)) return url
+        val base = url.substringBefore("?")
+        val now = System.currentTimeMillis() / 1000
+        val start = now - 300
+        val end = now + LIVE_WINDOW_SEC
+        return "${base}?start=$start&end=$end"
+    }
+
     fun createMediaItem(channel: Channel): MediaItem {
         val streamUrl = channel.url.trim()
         val drmRaw = stripNonDrmSegments(channel.drmLicenseUrl.trim())
-        val isDashMpd = streamUrl.endsWith(".mpd", ignoreCase = true)
-        if (drmRaw.isBlank() || !isDashMpd) {
+
+        if (!isDashMpdUrl(streamUrl)) {
             return MediaItem.fromUri(streamUrl)
         }
-        return MediaItem.Builder()
+
+        val builder = MediaItem.Builder()
             .setUri(streamUrl)
             .setMimeType(MimeTypes.APPLICATION_MPD)
-            .build()
+
+        if (drmRaw.isBlank()) {
+            return builder.build()
+        }
+
+        when {
+            drmRaw.startsWith(PREFIX_CLEARKEY_HEX, ignoreCase = true) ||
+                drmRaw.startsWith(PREFIX_CLEARKEY, ignoreCase = true) ||
+                looksLikeClearKeyPayload(drmRaw) -> {
+                builder.setDrmConfiguration(
+                    MediaItem.DrmConfiguration.Builder(C.CLEARKEY_UUID).build(),
+                )
+            }
+            isStaleVerspectiveWidevine(drmRaw) -> {
+                android.util.Log.e(
+                    "DrmPlaybackHelper",
+                    "Skip Widevine Verspective on MediaItem for ${channel.name}",
+                )
+            }
+            drmRaw.startsWith("http://", ignoreCase = true) ||
+                drmRaw.startsWith("https://", ignoreCase = true) -> {
+                val licenseUri = drmRaw.split("|").first().trim()
+                builder.setDrmConfiguration(
+                    MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
+                        .setLicenseUri(licenseUri)
+                        .build(),
+                )
+            }
+        }
+
+        return builder.build()
     }
 
     fun createPlaybackDrm(drmLicenseUrl: String): ParsedPlaybackDrm {
@@ -295,17 +370,17 @@ object DrmPlaybackHelper {
     }
 
     private fun createClearKeyFromPayload(payload: String): DrmSessionManager? {
-        val keySetJson = when {
-            payload.startsWith("{") -> payload
+        val licenseBytes = when {
+            payload.startsWith("{") -> payload.toByteArray(Charsets.UTF_8)
             else -> {
                 try {
-                    String(Base64.decode(payload, Base64.DEFAULT), Charsets.UTF_8)
+                    Base64.decode(padBase64(payload), Base64.DEFAULT)
                 } catch (_: Exception) {
                     return null
                 }
             }
         }
-        return buildClearKeySession(keySetJson)
+        return buildClearKeySessionFromBytes(licenseBytes)
     }
 
     private fun hexPairToClearKeyJson(kidHex: String, keyHex: String): String? {
@@ -327,14 +402,44 @@ object DrmPlaybackHelper {
     }
 
     private fun buildClearKeySession(keySetJson: String): DrmSessionManager? {
+        return buildClearKeySessionFromBytes(normalizeClearKeyJson(keySetJson).toByteArray(Charsets.UTF_8))
+    }
+
+    /** Sama seperti APK test: byte license langsung ke [LocalMediaDrmCallback]. */
+    private fun buildClearKeySessionFromBytes(licenseBytes: ByteArray): DrmSessionManager? {
         return try {
             DefaultDrmSessionManager.Builder()
-                .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                .build(LocalMediaDrmCallback(keySetJson.toByteArray(Charsets.UTF_8)))
+                .setUuidAndExoMediaDrmProvider(C.CLEARKEY_UUID) { uuid ->
+                    FrameworkMediaDrm.newInstance(uuid)
+                }
+                .build(LocalMediaDrmCallback(licenseBytes))
         } catch (e: Exception) {
             android.util.Log.e("DrmPlaybackHelper", "ClearKey init failed", e)
             null
         }
+    }
+
+    /** Pastikan JSON keys memiliki field `type` dan kid/k ter-normalisasi. */
+    private fun normalizeClearKeyJson(keySetJson: String): String {
+        return try {
+            val root = JSONObject(keySetJson.trim())
+            if (!root.has("type")) {
+                root.put("type", "temporary")
+            }
+            val keys = root.optJSONArray("keys") ?: return keySetJson
+            for (i in 0 until keys.length()) {
+                val entry = keys.optJSONObject(i) ?: continue
+                if (!entry.has("kty")) entry.put("kty", "oct")
+            }
+            root.toString()
+        } catch (_: Exception) {
+            keySetJson
+        }
+    }
+
+    private fun padBase64(value: String): String {
+        val mod = value.length % 4
+        return if (mod == 0) value else value + "=".repeat(4 - mod)
     }
 
     private fun createWidevine(licenseUrl: String): DrmSessionManager? {

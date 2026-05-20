@@ -27,7 +27,8 @@ object LiveExoPlayerFactory {
     ): ExoPlayer {
         ChannelRepository.loadChannels(context)
 
-        val effectiveDrm = DrmPlaybackHelper.sanitizeForPlayback(channel.drmLicenseUrl)
+        val playbackChannel = DrmPlaybackHelper.resolveChannelForPlayback(channel)
+        val effectiveDrm = DrmPlaybackHelper.sanitizeForPlayback(playbackChannel.drmLicenseUrl)
         val httpFactory = DrmPlaybackHelper.createHttpDataSourceFactory(effectiveDrm)
         val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
         val renderersFactory = NextRenderersFactory(context).apply {
@@ -97,7 +98,7 @@ object LiveExoPlayerFactory {
         } catch (_: Exception) {
         }
 
-        val mediaItem = DrmPlaybackHelper.createMediaItem(channel)
+        val mediaItem = DrmPlaybackHelper.createMediaItem(playbackChannel)
         exo.setMediaItem(mediaItem)
         exo.prepare()
         return exo

@@ -123,10 +123,7 @@ class MainActivity : ComponentActivity() {
 
                 try {
                     val authPlaylist = AuthRepository.getResolvedPlaylistUrl(this@MainActivity).trim()
-                    val urls = linkedSetOf<String>().apply {
-                        if (authPlaylist.isNotBlank()) add(authPlaylist)
-                        ChannelRepository.getPlaylistUrls(this@MainActivity).forEach { add(it.trim()) }
-                    }
+                    val urls = ChannelRepository.collectPlaylistRefreshUrls(this@MainActivity)
                     if (urls.isNotEmpty()) {
                         urls.forEach { playlistUrl ->
                             val isAccountPlaylist = authPlaylist.isNotBlank() &&
