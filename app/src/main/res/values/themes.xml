@@ -1,6 +1,21 @@
 <resources>
 
+    <!-- Theme utama app -->
     <style name="Theme.MQLTV" parent="Theme.AppCompat.DayNight.NoActionBar" />
+
+    <!--
+        Splash Screen (androidx.core:core-splashscreen).
+        Diterapkan di LoginActivity & MainActivity.
+        - windowSplashScreenBackground : warna background gelap seperti gradient app
+        - windowSplashScreenAnimatedIcon : ikon foreground dari launcher
+        - postSplashScreenTheme : tema yang dipakai setelah splash selesai
+    -->
+    <style name="Theme.MQLTV.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0A1F3C</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="windowSplashScreenIconBackgroundColor">#0A2A63</item>
+        <item name="postSplashScreenTheme">@style/Theme.MQLTV</item>
+    </style>
 
     <!-- Translucent overlay so channel list can appear without stopping playback underneath. -->
     <style name="Theme.MQLTV.ChannelListOverlay" parent="Theme.AppCompat.DayNight.NoActionBar">

@@ -66,36 +66,24 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+
 class LoginActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         // If already logged in, jump straight into app
+        // Jika sudah login, langsung masuk app — ExpiryWatcher di MainActivity yang akan
+        // menangani pengecekan expiry secara berkala (setelah delay) agar tidak salah kick-out
+        // hanya karena server sesaat balas 401/403 saat buka app.
         if (AuthRepository.isLoggedIn(this)) {
-            lifecycleScope.launch {
-                // If user got renewed server-side, playlist may be accessible again.
-                // Probe once to clear cached expired flag.
-                try {
-                    AuthRepository.probeExpiredFromPlaylistUrl(this@LoginActivity)
-                } catch (_: Exception) {
-                }
-
-                if (AuthRepository.isExpiredNow(this@LoginActivity)) {
-                    startActivity(
-                        Intent(this@LoginActivity, ExpiredActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                    finish()
-                    return@launch
-                }
-
-                startActivity(
-                    Intent(this@LoginActivity, MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-                finish()
-            }
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            finish()
             return
         }
 

@@ -101,6 +101,9 @@ dependencies {
 
     // Encrypted storage for sensitive credentials
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Splash Screen API (backport sampai API 21)
+    implementation("androidx.core:core-splashscreen:1.0.1")
     
     // VLC for Android - libVLC
     implementation("org.videolan.android:libvlc-all:3.6.0")

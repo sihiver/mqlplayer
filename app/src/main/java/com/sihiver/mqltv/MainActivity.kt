@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
@@ -115,9 +116,9 @@ class MainActivity : ComponentActivity() {
     private fun startPlaylistAutoRefresh() {
         playlistAutoRefreshJob?.cancel()
         playlistAutoRefreshJob = lifecycleScope.launch {
-            // Refresh periodically while the activity is in foreground.
-            // Keep interval modest to avoid unnecessary network traffic.
-            val intervalMs = 5 * 60 * 1000L // 5 minutes
+            val intervalMs = 5 * 60 * 1000L
+            // Tunda sedikit agar UI sudah muncul saat pertama buka app.
+            delay(15_000)
             while (true) {
                 if (!AuthRepository.isLoggedIn(this@MainActivity)) return@launch
 
@@ -132,7 +133,6 @@ class MainActivity : ComponentActivity() {
                             ChannelRepository.refreshPlaylistFromServer(
                                 this@MainActivity,
                                 playlistUrl,
-                                // URL playlist akun = server IPTV: selalu unduh penuh agar channel mengikuti server.
                                 forceFullFetch = isAccountPlaylist,
                             )
                         }
@@ -154,6 +154,20 @@ class MainActivity : ComponentActivity() {
     private fun startExpiryWatcher() {
         expiryWatcherJob?.cancel()
         expiryWatcherJob = lifecycleScope.launch {
+            // Cek login lokal dulu (tanpa network) — hanya untuk pastikan sesi ada.
+            if (!AuthRepository.isLoggedIn(this@MainActivity)) {
+                startActivity(
+                    Intent(this@MainActivity, LoginActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                finish()
+                return@launch
+            }
+
+            // Tunda probe network — jangan langsung saat buka app supaya UI sempat muncul
+            // dan tidak salah anggap expired hanya karena cache stale atau network flaky sesaat.
+            delay(60_000)
+
             while (true) {
                 if (!AuthRepository.isLoggedIn(this@MainActivity)) {
                     startActivity(
@@ -164,16 +178,10 @@ class MainActivity : ComponentActivity() {
                     return@launch
                 }
 
-                if (AuthRepository.isExpiredNow(this@MainActivity)) {
-                    startActivity(
-                        Intent(this@MainActivity, ExpiredActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                    finish()
-                    return@launch
-                }
+                // Probe network dulu untuk update status akurat; isExpiredNow pakai hasil probe terbaru.
+                AuthRepository.probeExpiredFromPlaylistUrl(this@MainActivity)
 
-                if (AuthRepository.probeExpiredFromPlaylistUrl(this@MainActivity)) {
+                if (AuthRepository.isExpiredNow(this@MainActivity)) {
                     startActivity(
                         Intent(this@MainActivity, ExpiredActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -203,21 +211,24 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalTvMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        // installSplashScreen harus dipanggil SEBELUM super.onCreate().
+        // setKeepOnScreenCondition menahan splash sampai UI Compose siap ditampilkan.
+        var uiReadyForSplash = false
+        val splashScreen = installSplashScreen()
+        splashScreen.setKeepOnScreenCondition { !uiReadyForSplash }
+
         super.onCreate(savedInstanceState)
 
         if (!AuthRepository.isLoggedIn(this)) {
+            uiReadyForSplash = true
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
             return
         }
 
-        // Async-ish check (before UI render): if account expired, block access.
-        lifecycleScope.launch {
-            if (AuthRepository.isExpiredNow(this@MainActivity)) {
-                startActivity(Intent(this@MainActivity, ExpiredActivity::class.java))
-                finish()
-            }
-        }
+        // Bersihkan flag expired stale yang mungkin tersimpan dari probe sebelumnya yang salah.
+        // Status akurat akan di-probe ulang oleh ExpiryWatcher setelah 60 detik.
+        AuthRepository.markNotExpiredServer(this)
         
         // Make status bar transparent with light icons (for dark theme)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
@@ -244,6 +255,11 @@ class MainActivity : ComponentActivity() {
         
         setContent {
             MQLTVTheme {
+                // Saat Compose selesai render frame pertama, lepaskan splash screen.
+                LaunchedEffect(Unit) {
+                    uiReadyForSplash = true
+                }
+
                 var selectedTab by remember { mutableStateOf(0) }
                 var showExitDialog by remember { mutableStateOf(false) }
                 val prefs = remember { getSharedPreferences(PREFS_VIDEO_SETTINGS, Context.MODE_PRIVATE) }
@@ -723,17 +739,9 @@ class MainActivity : ComponentActivity() {
     
     override fun onResume() {
         super.onResume()
-        // Tampilkan cache dulu, lalu tarik playlist terbaru dari server (jangan hanya baca disk).
         ChannelRepository.loadChannels(this)
         startExpiryWatcher()
         startPlaylistAutoRefresh()
-        lifecycleScope.launch {
-            try {
-                ChannelRepository.syncAllPlaylistsFromServer(this@MainActivity, forceFullFetch = true)
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Sync playlist from server on resume failed", e)
-            }
-        }
     }
 
     override fun onPause() {
