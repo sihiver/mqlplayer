@@ -255,9 +255,51 @@ class MainActivity : ComponentActivity() {
         
         setContent {
             MQLTVTheme {
-                // Saat Compose selesai render frame pertama, lepaskan splash screen.
+                // uiReady: false = loading screen statis, true = UI penuh
+                var uiReady by remember { mutableStateOf(false) }
+
                 LaunchedEffect(Unit) {
+                    // Dismiss splash di frame pertama (loading screen sudah terrender)
                     uiReadyForSplash = true
+                    // Biarkan loading screen tampil sebentar sebelum JIT compilation dimulai
+                    kotlinx.coroutines.delay(300)
+                    uiReady = true
+                }
+
+                if (!uiReady) {
+                    // Loading screen STATIS — tidak ada elemen bergerak sehingga tidak terlihat "stuck"
+                    // Spinner dihindari karena main thread akan blocked 6-7 detik saat JIT compile
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF0A1F3C)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(20.dp)
+                        ) {
+                            androidx.compose.foundation.Image(
+                                painter = painterResource(id = R.drawable.splash_icon),
+                                contentDescription = null,
+                                modifier = Modifier.size(72.dp),
+                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF4FC3F7))
+                            )
+                            Material3Text(
+                                text = "MQLTV",
+                                color = Color.White,
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp
+                            )
+                            Material3Text(
+                                text = "Memuat antarmuka...",
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                    return@MQLTVTheme
                 }
 
                 var selectedTab by remember { mutableStateOf(0) }
