@@ -589,11 +589,27 @@ class PlayerActivityExo : ComponentActivity() {
                     }
                 }
 
-            // Simple LoadControl - let ExoPlayer manage buffers
-            val loadControl = androidx.media3.exoplayer.DefaultLoadControl()
+            // Buffer yang dioptimasi untuk live IPTV.
+            // Default ExoPlayer (minBuffer=50s, maxBuffer=50s) terlalu besar untuk live stream —
+            // player selalu buffering menunggu 50s content yang tidak pernah tersedia di live stream.
+            val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    /* minBufferMs            */ 15_000,  // mulai main setelah 15s terkumpul
+                    /* maxBufferMs            */ 30_000,  // simpan maks 30s di memori
+                    /* bufferForPlaybackMs    */ 1_000,   // mulai playback setelah 1s buffer
+                    /* bufferForPlaybackAfterRebufferMs */ 2_500  // resume cepat setelah re-buffer
+                )
+                .setPrioritizeTimeOverSizeThresholds(true) // live: utamakan durasi, bukan ukuran
+                .build()
 
-            // Create TrackSelector - use defaults
-            val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this)
+            // TrackSelector dengan tunneling (hardware decode tunnel) untuk perangkat yang support
+            val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this).apply {
+                setParameters(
+                    buildUponParameters()
+                        .setTunnelingEnabled(true)
+                        .build()
+                )
+            }
 
             // Create ExoPlayer
             exoPlayer = ExoPlayer.Builder(this)

@@ -51,8 +51,25 @@ object LiveExoPlayerFactory {
                 }
             }
 
-        val loadControl = androidx.media3.exoplayer.DefaultLoadControl()
-        val trackSelector = DefaultTrackSelector(context)
+        // Buffer yang dioptimasi untuk live IPTV.
+        // Default ExoPlayer (minBuffer=50s, maxBuffer=50s) terlalu besar untuk live stream.
+        val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs            */ 15_000,
+                /* maxBufferMs            */ 30_000,
+                /* bufferForPlaybackMs    */ 1_000,
+                /* bufferForPlaybackAfterRebufferMs */ 2_500
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        val trackSelector = DefaultTrackSelector(context).apply {
+            setParameters(
+                buildUponParameters()
+                    .setTunnelingEnabled(true)
+                    .build()
+            )
+        }
 
         val exo = ExoPlayer.Builder(context)
             .setRenderersFactory(renderersFactory)
