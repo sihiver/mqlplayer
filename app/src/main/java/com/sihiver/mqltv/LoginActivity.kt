@@ -71,7 +71,6 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 class LoginActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         // If already logged in, jump straight into app
