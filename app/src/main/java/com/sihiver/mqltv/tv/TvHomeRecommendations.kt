@@ -42,6 +42,8 @@ object TvHomeRecommendations {
     private const val PREFS = "tv_home_recommendations"
     private const val KEY_CHANNEL_ID = "preview_channel_id"
     private const val KEY_BROWSABLE_REQUESTED = "browsable_requested"
+    private const val KEY_LABEL_FIX_VERSION = "label_fix_version"
+    private const val LABEL_FIX_VERSION = 1
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
@@ -49,6 +51,29 @@ object TvHomeRecommendations {
     fun isSupported(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         return context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    }
+
+    /**
+     * Sekali setelah update label TV: hapus saluran lama di TvProvider agar launcher memuat ulang
+     * metadata (ikon saluran memakai [application label] di perangkat TV).
+     */
+    fun applyLabelFixOnceIfNeeded(context: Context) {
+        if (!isSupported(context)) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getInt(KEY_LABEL_FIX_VERSION, 0) >= LABEL_FIX_VERSION) return
+        prefs.edit { putInt(KEY_LABEL_FIX_VERSION, LABEL_FIX_VERSION) }
+        resetAllPreviewChannels(context.applicationContext)
+        Log.d(TAG, "Applied TV home label fix v$LABEL_FIX_VERSION — preview channel reset")
+    }
+
+    fun resetAllPreviewChannels(context: Context) {
+        if (!isSupported(context)) return
+        val appContext = context.applicationContext
+        findAllOurChannelIds(appContext).forEach { deleteChannel(appContext, it) }
+        appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            remove(KEY_CHANNEL_ID)
+            putBoolean(KEY_BROWSABLE_REQUESTED, false)
+        }
     }
 
     /** Sinkronkan saluran + program di background (panggil setelah menonton / onResume). */
@@ -201,18 +226,9 @@ object TvHomeRecommendations {
         }
 
         // Tidak ada channel sama sekali — buat baru
-        val appLinkIntent = Intent(context, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
-        val builder = Channel.Builder()
-            .setType(TvContractCompat.Channels.TYPE_PREVIEW)
-            .setDisplayName(context.getString(R.string.tv_channel_recently_watched))
-            .setDescription(context.getString(R.string.tv_channel_recently_watched_desc))
-            .setAppLinkIntentUri(appLinkIntent.toUri(Intent.URI_INTENT_SCHEME).toUri())
-
         val channelUri = context.contentResolver.insert(
             TvContractCompat.Channels.CONTENT_URI,
-            builder.build().toContentValues(),
+            buildPreviewChannelValues(context),
         ) ?: throw IllegalStateException("Failed to insert TV preview channel")
 
         val channelId = ContentUris.parseId(channelUri)
@@ -264,9 +280,13 @@ object TvHomeRecommendations {
 
         val channelId = getOrCreatePreviewChannelId(context)
         storeChannelLogo(context, channelId)
-        if (touchChannel) {
-            touchPreviewChannelForLauncher(context, channelId, recentlyWatched.size)
-        }
+        // Selalu perbarui metadata (termasuk app_link_text) agar label ikon saluran benar di launcher.
+        updatePreviewChannelMetadata(
+            context,
+            channelId,
+            recentCount = recentlyWatched.size,
+            includeSyncStamp = touchChannel,
+        )
         syncPreviewPrograms(
             context,
             channelId,
@@ -281,28 +301,85 @@ object TvHomeRecommendations {
         )
     }
 
-    /** Ubah metadata saluran supaya launcher mendeteksi perubahan baris. */
+    /**
+     * Metadata saluran preview. Di Google TV Launcher, label di ikon saluran biasanya dari
+     * application label (lihat values-television/strings.xml), bukan hanya display_name.
+     */
     @UnstableApi
-    private fun touchPreviewChannelForLauncher(context: Context, tvChannelId: Long, recentCount: Int) {
-        try {
-            val appLinkIntent = Intent(context, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-            val desc = context.getString(R.string.tv_channel_recently_watched_desc) +
+    private fun buildPreviewChannelValues(
+        context: Context,
+        recentCount: Int = 0,
+        includeSyncStamp: Boolean = false,
+    ): android.content.ContentValues {
+        val channelTitle = context.getString(R.string.tv_channel_recently_watched)
+        val description = if (includeSyncStamp) {
+            context.getString(R.string.tv_channel_recently_watched_desc) +
                 " · $recentCount · ${System.currentTimeMillis()}"
-            val builder = Channel.Builder()
-                .setType(TvContractCompat.Channels.TYPE_PREVIEW)
-                .setDisplayName(context.getString(R.string.tv_channel_recently_watched))
-                .setDescription(desc)
-                .setAppLinkIntentUri(appLinkIntent.toUri(Intent.URI_INTENT_SCHEME).toUri())
+        } else {
+            context.getString(R.string.tv_channel_recently_watched_desc)
+        }
+        val appLinkIntent = Intent(context, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val appLinkIntentUri = appLinkIntent.toUri(Intent.URI_INTENT_SCHEME).toUri()
+        val iconUri = "android.resource://${context.packageName}/${R.mipmap.ic_channel}".toUri()
+
+        val values = Channel.Builder()
+            .setType(TvContractCompat.Channels.TYPE_PREVIEW)
+            .setDisplayName(channelTitle)
+            .setDescription(description)
+            .setAppLinkIntentUri(appLinkIntentUri)
+            .setAppLinkText(channelTitle)
+            .setAppLinkIconUri(iconUri)
+            .build()
+            .toContentValues()
+
+        // Pastikan kolom app_link terisi (untuk launcher yang membacanya).
+        values.put(TvContractCompat.Channels.COLUMN_APP_LINK_TEXT, channelTitle)
+        values.put(TvContractCompat.Channels.COLUMN_APP_LINK_ICON_URI, iconUri.toString())
+        return values
+    }
+
+    @UnstableApi
+    private fun updatePreviewChannelMetadata(
+        context: Context,
+        tvChannelId: Long,
+        recentCount: Int,
+        includeSyncStamp: Boolean,
+    ) {
+        try {
             context.contentResolver.update(
                 TvContractCompat.buildChannelUri(tvChannelId),
-                builder.build().toContentValues(),
+                buildPreviewChannelValues(context, recentCount, includeSyncStamp),
                 null,
                 null,
             )
+            logChannelMetadata(context, tvChannelId)
         } catch (e: Exception) {
-            Log.w(TAG, "touchPreviewChannelForLauncher failed", e)
+            Log.w(TAG, "updatePreviewChannelMetadata failed", e)
+        }
+    }
+
+    @SuppressLint("RestrictedApi")
+    private fun logChannelMetadata(context: Context, tvChannelId: Long) {
+        try {
+            context.contentResolver.query(
+                TvContractCompat.buildChannelUri(tvChannelId),
+                Channel.PROJECTION,
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return
+                val ch = Channel.fromCursor(cursor)
+                Log.d(
+                    TAG,
+                    "Channel $tvChannelId metadata: displayName=${ch.displayName}, " +
+                        "appLinkText=${ch.appLinkText}, package=${ch.packageName}",
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "logChannelMetadata failed", e)
         }
     }
 

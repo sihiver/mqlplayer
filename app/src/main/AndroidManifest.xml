@@ -31,7 +31,7 @@
         android:largeHeap="true"
         android:enableOnBackInvokedCallback="true"
         android:networkSecurityConfig="@xml/network_security_config"
-        tools:targetApi="24">
+        tools:targetApi="33">
         <activity
             android:name=".LoginActivity"
             android:exported="false"
@@ -73,7 +73,7 @@
             android:screenOrientation="unspecified"
             android:launchMode="singleTop">
             <!-- Intent dari kartu program di beranda TV -->
-            <intent-filter>
+            <intent-filter tools:ignore="AppLinkUrlError">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />

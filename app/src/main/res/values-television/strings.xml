@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Google TV Launcher memakai application label di ikon saluran beranda (bukan display_name). -->
+    <string name="app_name">Terakhir Ditonton</string>
+</resources>
