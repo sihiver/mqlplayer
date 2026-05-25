@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,7 +27,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -318,6 +318,7 @@ class LoginActivity : ComponentActivity() {
                                 val loginShape = RoundedCornerShape(12.dp)
                                 val loginEnabled = !isLoading
                                 val loginBackground = when {
+                                    isLoading -> Color(0xFF9E0810)
                                     !loginEnabled -> Color(0xFF7A0C10)
                                     loginFocused && isTvDevice -> Color(0xFFFF3B3B)
                                     else -> Color(0xFFE50914)
@@ -332,8 +333,9 @@ class LoginActivity : ComponentActivity() {
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(buttonHeight)
+                                        .alpha(if (isLoading) 0.85f else 1f)
                                         .then(
-                                            if (isTvDevice && loginFocused) {
+                                            if (isTvDevice && loginFocused && !isLoading) {
                                                 Modifier.scale(1.03f)
                                             } else {
                                                 Modifier
@@ -341,7 +343,10 @@ class LoginActivity : ComponentActivity() {
                                         )
                                         .focusRequester(loginButtonFocusRequester)
                                         .onFocusChanged { loginFocused = it.isFocused }
-                                        .focusable(interactionSource = loginInteractionSource)
+                                        .focusable(
+                                            enabled = loginEnabled,
+                                            interactionSource = loginInteractionSource,
+                                        )
                                         .onKeyEvent { event ->
                                             if (!isTvDevice) return@onKeyEvent false
                                             when (event.type) {
@@ -371,36 +376,15 @@ class LoginActivity : ComponentActivity() {
                                         .background(loginBackground, loginShape),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    if (isLoading) {
-                                        androidx.compose.foundation.layout.Row(
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            CircularProgressIndicator(
-                                                color = Color.White,
-                                                strokeWidth = 2.dp,
-                                                modifier = Modifier.height(20.dp),
-                                            )
-                                            Text(
-                                                text = "Loading...",
-                                                color = Color.White,
-                                                fontSize = if (isTvDevice) 18.sp else 16.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                textAlign = TextAlign.Center,
-                                                maxLines = 1,
-                                            )
-                                        }
-                                    } else {
-                                        Text(
-                                            text = "Login",
-                                            color = Color.White,
-                                            fontSize = if (isTvDevice) 18.sp else 16.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 1,
-                                            modifier = Modifier.fillMaxWidth(),
-                                        )
-                                    }
+                                    Text(
+                                        text = if (isLoading) "Memproses..." else "Login",
+                                        color = Color.White,
+                                        fontSize = if (isTvDevice) 18.sp else 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
                                 }
                             }
                         }
