@@ -42,8 +42,6 @@ object TvHomeRecommendations {
     private const val PREFS = "tv_home_recommendations"
     private const val KEY_CHANNEL_ID = "preview_channel_id"
     private const val KEY_BROWSABLE_REQUESTED = "browsable_requested"
-    private const val KEY_LABEL_FIX_VERSION = "label_fix_version"
-    private const val LABEL_FIX_VERSION = 1
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
@@ -51,19 +49,6 @@ object TvHomeRecommendations {
     fun isSupported(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         return context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
-    }
-
-    /**
-     * Sekali setelah update label TV: hapus saluran lama di TvProvider agar launcher memuat ulang
-     * metadata (ikon saluran memakai [application label] di perangkat TV).
-     */
-    fun applyLabelFixOnceIfNeeded(context: Context) {
-        if (!isSupported(context)) return
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (prefs.getInt(KEY_LABEL_FIX_VERSION, 0) >= LABEL_FIX_VERSION) return
-        prefs.edit { putInt(KEY_LABEL_FIX_VERSION, LABEL_FIX_VERSION) }
-        resetAllPreviewChannels(context.applicationContext)
-        Log.d(TAG, "Applied TV home label fix v$LABEL_FIX_VERSION — preview channel reset")
     }
 
     fun resetAllPreviewChannels(context: Context) {
@@ -302,8 +287,8 @@ object TvHomeRecommendations {
     }
 
     /**
-     * Metadata saluran preview. Di Google TV Launcher, label di ikon saluran biasanya dari
-     * application label (lihat values-television/strings.xml), bukan hanya display_name.
+     * Metadata saluran preview. [DISPLAY_NAME] = judul baris "Terakhir Ditonton" di beranda TV;
+     * [APP_LINK_TEXT] = teks saat fokus kartu app-link (launcher tertentu).
      */
     @UnstableApi
     private fun buildPreviewChannelValues(

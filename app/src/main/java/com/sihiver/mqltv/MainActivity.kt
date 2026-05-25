@@ -242,10 +242,6 @@ class MainActivity : ComponentActivity() {
         // Load saved channels
         ChannelRepository.loadChannels(this)
 
-        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            com.sihiver.mqltv.tv.TvHomeRecommendations.applyLabelFixOnceIfNeeded(this@MainActivity)
-        }
-
         val authPlaylistUrl = AuthRepository.getResolvedPlaylistUrl(this).trim()
         val loggedIn = AuthRepository.isLoggedIn(this)
         if (loggedIn && authPlaylistUrl.isNotBlank()) {

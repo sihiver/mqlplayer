@@ -20,6 +20,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
@@ -27,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
@@ -113,6 +116,17 @@ class LoginActivity : ComponentActivity() {
                 var isLoading by remember { mutableStateOf(false) }
                 var errorMessage by remember { mutableStateOf("") }
                 var loginFocused by remember { mutableStateOf(false) }
+                val loginInteractionSource = remember { MutableInteractionSource() }
+
+                val tvTextFieldColors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.White,
+                    unfocusedBorderColor = Color(0xFF888888),
+                    focusedLabelColor = Color.White,
+                    unfocusedLabelColor = Color(0xFFAAAAAA),
+                    cursorColor = Color(0xFFE50914),
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                )
 
                 LaunchedEffect(isTvDevice) {
                     if (isTvDevice) {
@@ -167,6 +181,7 @@ class LoginActivity : ComponentActivity() {
                                     onValueChange = { username = it },
                                     label = { Text("Username") },
                                     singleLine = true,
+                                    colors = if (isTvDevice) tvTextFieldColors else OutlinedTextFieldDefaults.colors(),
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                                     keyboardActions = KeyboardActions(
                                         onNext = { passwordFocusRequester.requestFocus() }
@@ -193,6 +208,7 @@ class LoginActivity : ComponentActivity() {
                                     label = { Text("Password") },
                                     singleLine = true,
                                     visualTransformation = PasswordVisualTransformation(),
+                                    colors = if (isTvDevice) tvTextFieldColors else OutlinedTextFieldDefaults.colors(),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .focusRequester(passwordFocusRequester)
@@ -301,32 +317,58 @@ class LoginActivity : ComponentActivity() {
 
                                 val loginShape = RoundedCornerShape(12.dp)
                                 val loginEnabled = !isLoading
-                                val loginBackground = if (loginEnabled) Color(0xFFE50914) else Color(0xFF7A0C10)
+                                val loginBackground = when {
+                                    !loginEnabled -> Color(0xFF7A0C10)
+                                    loginFocused && isTvDevice -> Color(0xFFFF3B3B)
+                                    else -> Color(0xFFE50914)
+                                }
+                                val loginFocusBorder = if (isTvDevice && loginFocused) {
+                                    BorderStroke(3.dp, Color.White)
+                                } else {
+                                    BorderStroke(0.dp, Color.Transparent)
+                                }
 
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(buttonHeight)
-                                        .background(loginBackground, loginShape)
+                                        .then(
+                                            if (isTvDevice && loginFocused) {
+                                                Modifier.scale(1.03f)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
                                         .focusRequester(loginButtonFocusRequester)
                                         .onFocusChanged { loginFocused = it.isFocused }
-                                        .border(
-                                            border = if (isTvDevice && loginFocused) BorderStroke(2.dp, Color(0xFFE50914)) else BorderStroke(0.dp, Color.Transparent),
-                                            shape = loginShape,
-                                        )
-                                        .clickable(enabled = loginEnabled) { handleLoginClick() }
-                                        .focusable()
+                                        .focusable(interactionSource = loginInteractionSource)
                                         .onKeyEvent { event ->
                                             if (!isTvDevice) return@onKeyEvent false
-                                            if (event.type != KeyEventType.KeyUp) return@onKeyEvent false
-                                            when (event.key) {
-                                                Key.DirectionUp -> {
-                                                    passwordFocusRequester.requestFocus()
-                                                    true
+                                            when (event.type) {
+                                                KeyEventType.KeyDown -> when (event.key) {
+                                                    Key.Enter, Key.DirectionCenter, Key.NumPadEnter -> {
+                                                        if (loginEnabled) handleLoginClick()
+                                                        true
+                                                    }
+                                                    else -> false
+                                                }
+                                                KeyEventType.KeyUp -> when (event.key) {
+                                                    Key.DirectionUp -> {
+                                                        passwordFocusRequester.requestFocus()
+                                                        true
+                                                    }
+                                                    else -> false
                                                 }
                                                 else -> false
                                             }
-                                        },
+                                        }
+                                        .clickable(
+                                            enabled = loginEnabled,
+                                            interactionSource = loginInteractionSource,
+                                            indication = null,
+                                        ) { handleLoginClick() }
+                                        .border(loginFocusBorder, loginShape)
+                                        .background(loginBackground, loginShape),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     if (isLoading) {
