@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -220,6 +221,7 @@ class MainActivity : ComponentActivity() {
         splashScreen.setKeepOnScreenCondition { !uiReadyForSplash }
 
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
 
         if (!AuthRepository.isLoggedIn(this)) {
             uiReadyForSplash = true
@@ -231,14 +233,12 @@ class MainActivity : ComponentActivity() {
         // Bersihkan flag expired stale yang mungkin tersimpan dari probe sebelumnya yang salah.
         // Status akurat akan di-probe ulang oleh ExpiryWatcher setelah 60 detik.
         AuthRepository.markNotExpiredServer(this)
-        
+
         // Make status bar transparent with light icons (for dark theme)
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         androidx.core.view.WindowInsetsControllerCompat(window, window.decorView).apply {
             isAppearanceLightStatusBars = false // Light icons for dark theme
         }
-        
+
         // Load saved channels
         ChannelRepository.loadChannels(this)
 

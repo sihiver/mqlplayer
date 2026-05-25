@@ -1,8 +1,13 @@
+import org.gradle.api.artifacts.VersionCatalogsExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
+
+val libsCatalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
 android {
     namespace = "com.sihiver.mqltv"
@@ -19,7 +24,7 @@ android {
 
     defaultConfig {
         applicationId = "com.sihiver.mqltv"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 36
         versionCode = 3
         versionName = "1.2"
@@ -50,69 +55,71 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
     buildFeatures {
         compose = true
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
+    }
+}
+
 dependencies {
 
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.tv.foundation)
-    implementation(libs.androidx.tv.material)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.activity.compose)
-    
+    implementation(libsCatalog.findLibrary("androidx-core-ktx").get())
+    implementation(libsCatalog.findLibrary("androidx-appcompat").get())
+    implementation(platform(libsCatalog.findLibrary("androidx-compose-bom").get()))
+    implementation(libsCatalog.findLibrary("androidx-compose-ui").get())
+    implementation(libsCatalog.findLibrary("androidx-compose-ui-graphics").get())
+    implementation(libsCatalog.findLibrary("androidx-compose-ui-tooling-preview").get())
+    implementation(libsCatalog.findLibrary("androidx-tv-foundation").get())
+    implementation(libsCatalog.findLibrary("androidx-tv-material").get())
+    implementation(libsCatalog.findLibrary("androidx-lifecycle-runtime-ktx").get())
+    implementation(libsCatalog.findLibrary("androidx-activity-compose").get())
+
     // Material3 for phone UI
-    implementation("androidx.compose.material3:material3:1.4.0")
-    implementation("androidx.compose.material:material-icons-extended:1.6.0")
-    
-    // ExoPlayer for IPTV streaming (1.3.1 compatible with NextLib 0.7.1)
-    implementation("androidx.media3:media3-exoplayer:1.8.0")
-    implementation("androidx.media3:media3-exoplayer-hls:1.8.0")
-    implementation("androidx.media3:media3-exoplayer-dash:1.8.0") // DASH + DRM support
-    implementation("androidx.media3:media3-ui:1.8.0")
-    implementation("androidx.media3:media3-extractor:1.8.0")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.8.0")
-    
+    implementation(libsCatalog.findLibrary("androidx-compose-material3").get())
+    implementation(libsCatalog.findLibrary("androidx-compose-material-icons-extended").get())
+
+    // ExoPlayer for IPTV streaming (Media3)
+    implementation(libsCatalog.findLibrary("androidx-media3-exoplayer").get())
+    implementation(libsCatalog.findLibrary("androidx-media3-exoplayer-hls").get())
+    implementation(libsCatalog.findLibrary("androidx-media3-exoplayer-dash").get()) // DASH + DRM support
+    implementation(libsCatalog.findLibrary("androidx-media3-ui").get())
+    implementation(libsCatalog.findLibrary("androidx-media3-extractor").get())
+    implementation(libsCatalog.findLibrary("androidx-media3-exoplayer-rtsp").get())
+
     // NextLib FFmpeg extension for MPEG-L2 audio codec support (like M3UAndroid)
-    // Replace 1.8.0 with the version of Media3 you are using
-    implementation("io.github.anilbeesetti:nextlib-media3ext:1.8.0-0.9.0")
-    
+    implementation(libsCatalog.findLibrary("io-github-anilbeesetti-nextlib-media3ext").get())
+
     // OkHttp DataSource for ExoPlayer network streaming
-    implementation("androidx.media3:media3-datasource-okhttp:1.8.0")
-    
+    implementation(libsCatalog.findLibrary("androidx-media3-datasource-okhttp").get())
+
     // ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-    
+    implementation(libsCatalog.findLibrary("androidx-lifecycle-viewmodel-compose").get())
+
     // Coil for image loading
-    implementation("io.coil-kt:coil-compose:2.7.0")
-    
+    implementation(libsCatalog.findLibrary("coil-compose").get())
+
     // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation(libsCatalog.findLibrary("androidx-coroutines-android").get())
 
     // Encrypted storage for sensitive credentials
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation(libsCatalog.findLibrary("androidx-security-crypto").get())
 
     // Splash Screen API (backport sampai API 21)
-    implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation(libsCatalog.findLibrary("androidx-core-splashscreen").get())
 
     // Android TV — saluran rekomendasi di beranda (API 26+)
-    implementation(libs.androidx.tvprovider)
+    implementation(libsCatalog.findLibrary("androidx-tvprovider").get())
     
     // VLC for Android - libVLC
-    implementation("org.videolan.android:libvlc-all:3.6.0")
+    implementation(libsCatalog.findLibrary("org-videolan-android-libvlc-all").get())
     
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-    debugImplementation(libs.androidx.compose.ui.tooling)
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
+    androidTestImplementation(platform(libsCatalog.findLibrary("androidx-compose-bom").get()))
+    androidTestImplementation(libsCatalog.findLibrary("androidx-compose-ui-test-junit4").get())
+    debugImplementation(libsCatalog.findLibrary("androidx-compose-ui-tooling").get())
+    debugImplementation(libsCatalog.findLibrary("androidx-compose-ui-test-manifest").get())
 }

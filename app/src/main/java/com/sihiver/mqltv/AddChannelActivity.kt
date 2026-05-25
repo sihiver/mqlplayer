@@ -13,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,19 +79,11 @@ fun AddChannelScreen(
             )
         )
         
-        ScrollableTabRow(
+        SecondaryScrollableTabRow(
             selectedTabIndex = selectedTab,
             containerColor = Color(0xFF2A2A2A),
             contentColor = Color(0xFF00BCD4),
             edgePadding = 8.dp,
-            indicator = { tabPositions ->
-                if (selectedTab < tabPositions.size) {
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                        color = Color(0xFF00BCD4),
-                    )
-                }
-            },
         ) {
             tabs.forEachIndexed { index, title ->
                 Tab(
@@ -471,26 +462,26 @@ fun ImportM3UScreen(
                                 }
                                 
                                 // Show toast
-                                android.widget.Toast.makeText(
+                                Toast.makeText(
                                     context,
                                     "$count channels imported successfully",
-                                    android.widget.Toast.LENGTH_SHORT
+                                    Toast.LENGTH_SHORT
                                 ).show()
                                 
                                 onChannelAdded()
                             } else {
-                                android.widget.Toast.makeText(
+                                Toast.makeText(
                                     context,
                                     "No channels found in M3U",
-                                    android.widget.Toast.LENGTH_SHORT
+                                    Toast.LENGTH_SHORT
                                 ).show()
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
-                            android.widget.Toast.makeText(
+                            Toast.makeText(
                                 context,
                                 "Import gagal: ${e.message ?: "unknown error"}",
-                                android.widget.Toast.LENGTH_SHORT
+                                Toast.LENGTH_SHORT
                             ).show()
                         } finally {
                             isLoading = false

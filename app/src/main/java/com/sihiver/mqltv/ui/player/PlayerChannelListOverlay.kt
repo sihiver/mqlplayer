@@ -6,7 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,15 +22,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -168,8 +164,7 @@ fun handlePlayerChannelListKeyEvent(
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_NUMPAD_ENTER,
-            KeyEvent.KEYCODE_BUTTON_A,
-            23 -> {
+            KeyEvent.KEYCODE_BUTTON_A -> {
                 if (event.action == KeyEvent.ACTION_DOWN) {
                     // Header is "selected" -> OK does nothing (prevents accidental play)
                     if (nav.headerSelected.value) {
@@ -267,8 +262,7 @@ fun handlePlayerChannelListKeyEvent(
             KeyEvent.KEYCODE_BUTTON_A,
             KeyEvent.KEYCODE_DPAD_LEFT,
             KeyEvent.KEYCODE_MENU,
-            KeyEvent.KEYCODE_TAB,
-            23 -> {
+            KeyEvent.KEYCODE_TAB -> {
                 nav.selectedListIndex.value = if (currentIndex >= 0) currentIndex else 0
                 nav.selectedCategory.value = "all"
                 nav.headerSelected.value = false
@@ -394,7 +388,7 @@ fun PlayerChannelListOverlay(
                             }
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.KeyboardArrowLeft,
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                 contentDescription = "Prev category",
                                 tint = if (nav.headerSelected.value) Color.White else Color.Gray,
                                 modifier = Modifier
@@ -433,7 +427,7 @@ fun PlayerChannelListOverlay(
                             }
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.KeyboardArrowRight,
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                 contentDescription = "Next category",
                                 tint = if (nav.headerSelected.value) Color.White else Color.Gray,
                                 modifier = Modifier
@@ -452,7 +446,7 @@ fun PlayerChannelListOverlay(
                         }
                     }
 
-                    Divider(color = Color.Gray.copy(alpha = 0.3f))
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
 
                     if (filteredChannels.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
