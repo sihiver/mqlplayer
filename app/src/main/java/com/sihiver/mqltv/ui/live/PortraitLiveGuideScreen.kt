@@ -1,7 +1,8 @@
+@file:androidx.media3.common.util.UnstableApi
+
 package com.sihiver.mqltv.ui.live
 
 import android.content.Context
-import androidx.annotation.OptIn
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -63,8 +64,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -398,7 +397,7 @@ fun PortraitLiveGuideScreen(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     singleLine = true,
-                    label = { androidx.compose.material3.Text("Nama channel") },
+                    label = { Material3Text("Nama channel") },
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -614,7 +613,6 @@ fun PortraitLiveGuideScreen(
     }
 }
 
-@OptIn(UnstableApi::class)
 @Composable
 private fun PortraitInlinePlayer(
     channel: Channel?,
@@ -662,13 +660,13 @@ private fun PortraitInlinePlayer(
             accelerationSetting = accelerationSetting,
         )
 
-        val listener = object : Player.Listener {
+        val listener = object : androidx.media3.common.Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = when (playbackState) {
-                    Player.STATE_READY -> false
-                    Player.STATE_BUFFERING -> true
-                    Player.STATE_IDLE -> exo.mediaItemCount > 0
-                    Player.STATE_ENDED -> false
+                    androidx.media3.common.Player.STATE_READY -> false
+                    androidx.media3.common.Player.STATE_BUFFERING -> true
+                    androidx.media3.common.Player.STATE_IDLE -> exo.mediaItemCount > 0
+                    androidx.media3.common.Player.STATE_ENDED -> false
                     else -> false
                 }
             }
@@ -679,7 +677,7 @@ private fun PortraitInlinePlayer(
         }
         exo.addListener(listener)
         playerView.player = exo
-        isBuffering = exo.playbackState != Player.STATE_READY
+        isBuffering = exo.playbackState != androidx.media3.common.Player.STATE_READY
 
         onDispose {
             exo.removeListener(listener)

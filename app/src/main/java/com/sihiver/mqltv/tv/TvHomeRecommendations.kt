@@ -1,12 +1,12 @@
 package com.sihiver.mqltv.tv
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.tvprovider.media.tv.Channel
@@ -22,6 +22,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import androidx.core.content.edit
+import androidx.core.net.toUri
+import androidx.media3.common.util.UnstableApi
 
 /**
  * Saluran rekomendasi di beranda Android TV (layar utama).
@@ -44,6 +47,7 @@ object TvHomeRecommendations {
     }
 
     /** Sinkronkan saluran + program di background (panggil setelah menonton / onResume). */
+    @UnstableApi
     fun syncAsync(context: Context) {
         if (!isSupported(context)) return
         val appContext = context.applicationContext
@@ -54,6 +58,7 @@ object TvHomeRecommendations {
     }
 
     /** Dipanggil dari [TvProgramsInitializeReceiver] saat app diinstal di TV. */
+    @UnstableApi
     fun syncBlocking(context: Context) {
         if (!isSupported(context)) return
         runCatching { ensureChannelAndSyncPrograms(context.applicationContext) }
@@ -73,27 +78,14 @@ object TvHomeRecommendations {
 
         try {
             TvContractCompat.requestChannelBrowsable(activity, channelId)
-            prefs.edit().putBoolean(KEY_BROWSABLE_REQUESTED, true).apply()
+            prefs.edit { putBoolean(KEY_BROWSABLE_REQUESTED, true) }
             Log.d(TAG, "requestChannelBrowsable for channelId=$channelId")
         } catch (e: Exception) {
             Log.w(TAG, "requestChannelBrowsable failed", e)
         }
     }
 
-    private fun ensureChannelAndSyncPrograms(context: Context) {
-        ChannelRepository.loadChannels(context)
-        ChannelRepository.loadRecentlyWatched(context)
-        val recentlyWatched = ChannelRepository.getRecentlyWatched()
-        if (recentlyWatched.isEmpty()) {
-            Log.d(TAG, "No recently watched channels — skip TV home sync")
-            return
-        }
-
-        val channelId = getOrCreatePreviewChannelId(context)
-        syncPreviewPrograms(context, channelId, recentlyWatched)
-        Log.d(TAG, "Synced ${recentlyWatched.size} program(s) to TV home channel $channelId")
-    }
-
+    @UnstableApi
     private fun getOrCreatePreviewChannelId(context: Context): Long {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val savedId = prefs.getLong(KEY_CHANNEL_ID, -1L)
@@ -108,7 +100,7 @@ object TvHomeRecommendations {
             .setType(TvContractCompat.Channels.TYPE_PREVIEW)
             .setDisplayName(context.getString(R.string.tv_channel_recently_watched))
             .setDescription(context.getString(R.string.tv_channel_recently_watched_desc))
-            .setAppLinkIntentUri(Uri.parse(appLinkIntent.toUri(Intent.URI_INTENT_SCHEME)))
+            .setAppLinkIntentUri(appLinkIntent.toUri(Intent.URI_INTENT_SCHEME).toUri())
 
         val channelUri = context.contentResolver.insert(
             TvContractCompat.Channels.CONTENT_URI,
@@ -117,7 +109,7 @@ object TvHomeRecommendations {
 
         val channelId = ContentUris.parseId(channelUri)
         storeChannelLogo(context, channelId)
-        prefs.edit().putLong(KEY_CHANNEL_ID, channelId).apply()
+        prefs.edit { putLong(KEY_CHANNEL_ID, channelId) }
         Log.d(TAG, "Created TV preview channel id=$channelId")
         return channelId
     }
@@ -138,7 +130,7 @@ object TvHomeRecommendations {
 
     private fun storeChannelLogo(context: Context, channelId: Long) {
         try {
-            val bitmap = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_banner)
+            val bitmap = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_channel)
             if (bitmap != null) {
                 ChannelLogoUtils.storeChannelLogo(context, channelId, bitmap)
                 return
@@ -146,10 +138,27 @@ object TvHomeRecommendations {
         } catch (e: Exception) {
             Log.w(TAG, "storeChannelLogo bitmap failed", e)
         }
-        val logoUri = Uri.parse("android.resource://${context.packageName}/${R.mipmap.ic_banner}")
+        val logoUri = "android.resource://${context.packageName}/${R.mipmap.ic_channel}".toUri()
         ChannelLogoUtils.storeChannelLogo(context, channelId, logoUri)
     }
 
+    @UnstableApi
+    private fun ensureChannelAndSyncPrograms(context: Context) {
+        ChannelRepository.loadChannels(context)
+        ChannelRepository.loadRecentlyWatched(context)
+        val recentlyWatched = ChannelRepository.getRecentlyWatched()
+        if (recentlyWatched.isEmpty()) {
+            Log.d(TAG, "No recently watched channels — skip TV home sync")
+            return
+        }
+
+        val channelId = getOrCreatePreviewChannelId(context)
+        syncPreviewPrograms(context, channelId, recentlyWatched)
+        Log.d(TAG, "Synced ${recentlyWatched.size} program(s) to TV home channel $channelId")
+    }
+
+    @UnstableApi
+    @SuppressLint("RestrictedApi")
     private fun syncPreviewPrograms(
         context: Context,
         tvChannelId: Long,
@@ -165,7 +174,8 @@ object TvHomeRecommendations {
             Log.w(TAG, "Could not clear old preview programs", e)
         }
 
-        val defaultPoster = Uri.parse("android.resource://${context.packageName}/${R.mipmap.ic_banner}")
+        val defaultPoster =
+            "android.resource://${context.packageName}/${R.mipmap.ic_banner}".toUri()
 
         channels.forEachIndexed { index, ch ->
             val playIntent = Intent(context, PlayerActivityExo::class.java).apply {
@@ -173,7 +183,7 @@ object TvHomeRecommendations {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             val posterUri = ch.logo.trim().takeIf { it.startsWith("http", ignoreCase = true) }
-                ?.let { Uri.parse(it) }
+                ?.toUri()
                 ?: defaultPoster
 
             val programBuilder = PreviewProgram.Builder()
@@ -184,7 +194,7 @@ object TvHomeRecommendations {
                     ch.category.trim().ifBlank { context.getString(R.string.tv_program_live_tv) },
                 )
                 .setPosterArtUri(posterUri)
-                .setIntentUri(Uri.parse(playIntent.toUri(Intent.URI_INTENT_SCHEME)))
+                .setIntentUri(playIntent.toUri(Intent.URI_INTENT_SCHEME).toUri())
                 .setInternalProviderId("mqltv_ch_${ch.id}")
                 // Semakin besar weight = tampil lebih awal; index 0 = terakhir ditonton
                 .setWeight(1_000 - index)

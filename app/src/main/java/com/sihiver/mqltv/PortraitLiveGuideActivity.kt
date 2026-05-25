@@ -2,7 +2,6 @@ package com.sihiver.mqltv
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
@@ -11,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.util.UnstableApi
 import com.sihiver.mqltv.repository.ChannelRepository
 import com.sihiver.mqltv.ui.live.PortraitLiveGuideScreen
 import com.sihiver.mqltv.ui.theme.MQLTVTheme
@@ -18,6 +18,7 @@ import com.sihiver.mqltv.ui.theme.MQLTVTheme
 /**
  * Halaman potret (video + panduan) setelah user memilih channel di grid Live — hanya untuk perangkat non-TV.
  */
+@UnstableApi
 class PortraitLiveGuideActivity : ComponentActivity() {
 
     companion object {
@@ -44,8 +45,6 @@ class PortraitLiveGuideActivity : ComponentActivity() {
             return
         }
 
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-
         ChannelRepository.loadChannels(this)
 
         setContent {
@@ -54,11 +53,7 @@ class PortraitLiveGuideActivity : ComponentActivity() {
                     initialChannelId = channelId,
                     onClose = { finish() },
                     onInlineFullscreenChanged = { landscape ->
-                        requestedOrientation = if (landscape) {
-                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                        } else {
-                            ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-                        }
+                        // Keep system UI in sync with fullscreen state without forcing orientation.
                         applyPortraitGuideSystemUi(landscape)
                     },
                 )
@@ -70,7 +65,7 @@ class PortraitLiveGuideActivity : ComponentActivity() {
 
     private fun applyPortraitGuideSystemUi(fullscreenLandscape: Boolean) {
         WindowCompat.setDecorFitsSystemWindows(window, !fullscreenLandscape)
-        val controller = WindowCompat.getInsetsController(window, window.decorView) ?: return
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
         if (fullscreenLandscape) {
             controller.hide(WindowInsetsCompat.Type.statusBars())
             controller.systemBarsBehavior =

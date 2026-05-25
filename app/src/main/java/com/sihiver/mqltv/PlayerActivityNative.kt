@@ -1,8 +1,6 @@
 package com.sihiver.mqltv
 
 import android.content.Intent
-import android.content.pm.ActivityInfo
-import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
@@ -10,7 +8,6 @@ import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,13 +28,13 @@ import com.sihiver.mqltv.ui.theme.MQLTVTheme
 import kotlinx.coroutines.launch
 import androidx.core.net.toUri
 
+@UnstableApi
 class PlayerActivityNative : ComponentActivity() {
 
     private var videoView: VideoView? = null
     private var fallbackStarted = false
     private lateinit var presenceManager: PresenceManager
 
-    @OptIn(UnstableApi::class)
     private fun startFallbackPlayer(channelId: Int) {
         if (fallbackStarted) return
         fallbackStarted = true
