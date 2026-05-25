@@ -541,6 +541,10 @@ class PlayerActivityVLC : ComponentActivity() {
             
             android.util.Log.d("PlayerActivityVLC", "Playing: ${ch.name}, URL: ${ch.url}")
             currentChannelName.value = ch.name
+
+            // Semua jalur putar (grid, overlay, nomor, CH±) lewat initializePlayer
+            ChannelRepository.addToRecentlyWatched(this, ch.id)
+
             // Send online presence when initializing playback (cover starting from Home/MainActivity)
             try {
                 presenceManager.sendOnlinePresence(ch.name, ch.url)

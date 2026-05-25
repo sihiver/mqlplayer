@@ -549,6 +549,9 @@ class PlayerActivityExo : ComponentActivity() {
 
             channel = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveChannelForPlayback(channel)
 
+            // Semua jalur putar (grid, overlay daftar channel, nomor, CH±) lewat sini
+            ChannelRepository.addToRecentlyWatched(this, channel.id)
+
             android.util.Log.d(
                 "PlayerActivityExo",
                 "Playing channel: ${channel.name}, URL: ${channel.url}, DRM: ${channel.drmLicenseUrl.take(80).ifBlank { "(kosong)" }}",

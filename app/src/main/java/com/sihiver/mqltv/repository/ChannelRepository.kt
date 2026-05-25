@@ -878,6 +878,9 @@ object ChannelRepository {
                         apply()
                     }
                     _channelsRevision.value = _channelsRevision.value + 1
+                    if (count > 0) {
+                        afterPlaylistDataChanged(context)
+                    }
                     android.util.Log.d(
                         "ChannelRepository",
                         "v216 JSON playlist refreshed: $count change(s) ($normalizedUrl)",
@@ -1051,6 +1054,7 @@ object ChannelRepository {
                 val didChange = channelsToRemove.isNotEmpty() || channelsToAdd.isNotEmpty() || updatedCount > 0
                 if (didChange) {
                     saveChannels(context)
+                    afterPlaylistDataChanged(context)
                 }
 
                 // Update cached fingerprint after a successful parse (even if didChange is false).
@@ -1127,6 +1131,7 @@ object ChannelRepository {
         }
         loadChannels(context)
         _channelsRevision.value = _channelsRevision.value + 1
+        afterPlaylistDataChanged(context)
     }
 
     /**
@@ -1280,7 +1285,25 @@ object ChannelRepository {
             .putBoolean("samples_cleared", sampleChannelsCleared)
             .apply()
 
+        loadRecentlyWatched(context)
+        pruneRecentlyWatchedInMemory(context)
         _channelsRevision.value = _channelsRevision.value + 1
+    }
+
+    /**
+     * Setelah playlist di-update: buang ID terakhir ditonton yang channel-nya sudah dihapus,
+     * lalu sinkronkan ulang kartu di beranda Android TV.
+     */
+    fun afterPlaylistDataChanged(context: Context) {
+        loadRecentlyWatched(context)
+        val removed = pruneRecentlyWatchedInMemory(context)
+        if (removed > 0) {
+            android.util.Log.d(
+                "ChannelRepository",
+                "Removed $removed stale recently-watched ID(s) after playlist update",
+            )
+        }
+        com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(context)
     }
     
     fun loadChannels(context: Context) {
@@ -1384,6 +1407,22 @@ object ChannelRepository {
         return recentlyWatchedIds.mapNotNull { id ->
             allChannels.find { it.id == id }
         }
+    }
+
+    /**
+     * Hapus ID terakhir ditonton yang tidak lagi ada di daftar channel (setelah hapus dari playlist).
+     * @return jumlah ID yang dibuang
+     */
+    private fun pruneRecentlyWatchedInMemory(context: Context): Int {
+        if (recentlyWatchedIds.isEmpty()) return 0
+        val validIds = getAllChannels().map { it.id }.toSet()
+        val before = recentlyWatchedIds.size
+        recentlyWatchedIds.retainAll(validIds)
+        val removed = before - recentlyWatchedIds.size
+        if (removed > 0) {
+            saveRecentlyWatched(context)
+        }
+        return removed
     }
     
     private fun saveRecentlyWatched(context: Context) {
