@@ -478,7 +478,11 @@ object ChannelRepository {
         }
     }
 
-    private fun importFromV216JsonBlocking(jsonContent: String, source: String): Int {
+    private fun importFromV216JsonBlocking(
+        jsonContent: String,
+        source: String,
+        context: Context? = null,
+    ): Int {
         val trimmed = jsonContent.trim()
         if (trimmed.isEmpty()) return 0
 
@@ -494,7 +498,7 @@ object ChannelRepository {
             return 0
         }
 
-        return syncV216JsonChannelsBlocking(info, source)
+        return syncV216JsonChannelsBlocking(info, source, context)
     }
 
     /**
@@ -510,9 +514,17 @@ object ChannelRepository {
         }
     }
 
-    private fun syncV216JsonChannelsBlocking(info: JSONArray, source: String): Int {
+    private fun syncV216JsonChannelsBlocking(
+        info: JSONArray,
+        source: String,
+        context: Context? = null,
+    ): Int {
         val normalizedSource = source.trim().ifBlank { "v216-json" }
-        val incoming = parseV216JsonChannels(info, normalizedSource)
+        val mergeIntoAccount = context != null && isAccountPlaylistJsonSource(context, normalizedSource)
+        val accountPlaylistUrl = context?.let { AuthRepository.getResolvedPlaylistUrl(it).trim() }.orEmpty()
+
+        val channelSourceTag = if (mergeIntoAccount) SOURCE_ACCOUNT_PLAYLIST else normalizedSource
+        val incoming = parseV216JsonChannels(info, channelSourceTag)
         if (incoming.isEmpty()) return 0
 
         val incomingByIdentity = incoming.associateBy { streamUrlIdentity(it.url) }
@@ -528,8 +540,15 @@ object ChannelRepository {
 
         for (incomingCh in incoming) {
             val identity = streamUrlIdentity(incomingCh.url)
-            val existingIndex = customChannels.indexOfFirst {
-                it.source == normalizedSource && streamUrlIdentity(it.url) == identity
+            var existingIndex = customChannels.indexOfFirst {
+                it.source == channelSourceTag && streamUrlIdentity(it.url) == identity
+            }
+            // Channel dari M3U akun punya source __mql_account_playlist__ — merge DRM dari JSON
+            if (existingIndex < 0 && mergeIntoAccount && context != null) {
+                existingIndex = customChannels.indexOfFirst { ch ->
+                    streamUrlIdentity(ch.url) == identity &&
+                        belongsToAccountPlaylistImport(context, ch.source, accountPlaylistUrl)
+                }
             }
             if (existingIndex >= 0) {
                 val existing = customChannels[existingIndex]
@@ -537,12 +556,19 @@ object ChannelRepository {
                     url = incomingCh.url,
                     name = incomingCh.name,
                     category = incomingCh.category,
-                    logo = incomingCh.logo,
+                    logo = incomingCh.logo.ifBlank { existing.logo },
                     drmLicenseUrl = incomingCh.drmLicenseUrl,
+                    source = if (mergeIntoAccount) SOURCE_ACCOUNT_PLAYLIST else existing.source,
                 )
                 if (updated != existing) {
                     customChannels[existingIndex] = updated
                     changed++
+                    if (incomingCh.drmLicenseUrl.isNotBlank()) {
+                        android.util.Log.d(
+                            "ChannelRepository",
+                            "DRM merged for '${existing.name}': ${incomingCh.drmLicenseUrl.take(60)}...",
+                        )
+                    }
                 }
             } else {
                 addChannel(incomingCh)
@@ -550,11 +576,27 @@ object ChannelRepository {
             }
         }
 
+        // Hapus duplikat lama dengan source URL JSON jika sudah di-merge ke account playlist
+        if (mergeIntoAccount) {
+            val beforeDup = customChannels.size
+            customChannels.removeAll { ch ->
+                ch.source == normalizedSource &&
+                    incomingByIdentity.containsKey(streamUrlIdentity(ch.url))
+            }
+            changed += beforeDup - customChannels.size
+        }
+
         android.util.Log.d(
             "ChannelRepository",
-            "v216 JSON sync: $changed change(s) (source=$normalizedSource, total=${incoming.size})",
+            "v216 JSON sync: $changed change(s) (source=$normalizedSource, mergeAccount=$mergeIntoAccount, total=${incoming.size})",
         )
         return changed
+    }
+
+    private fun isAccountPlaylistJsonSource(context: Context, jsonSource: String): Boolean {
+        val derived = deriveV216JsonUrl(context)?.trim().orEmpty()
+        if (derived.isBlank()) return false
+        return jsonSource.trim().equals(derived, ignoreCase = true)
     }
 
     private fun parseV216JsonChannels(info: JSONArray, normalizedSource: String): List<Channel> {
@@ -607,6 +649,13 @@ object ChannelRepository {
                 ordered.add(jsonSource)
                 addPlaylistUrl(context, jsonSource)
             }
+        // Playlist JSON akun (DRM) — derive dari URL M3U login
+        deriveV216JsonUrl(context)?.let { jsonUrl ->
+            if (!ordered.contains(jsonUrl)) {
+                ordered.add(jsonUrl)
+                addPlaylistUrl(context, jsonUrl)
+            }
+        }
         return ordered.toList()
     }
 
@@ -820,7 +869,7 @@ object ChannelRepository {
 
                 val trimmedContent = content.trim()
                 if (isV216JsonSource(normalizedUrl) || trimmedContent.startsWith("{")) {
-                    val count = importFromV216JsonBlocking(trimmedContent, normalizedUrl)
+                    val count = importFromV216JsonBlocking(trimmedContent, normalizedUrl, context)
                     saveChannels(context)
                     prefs.edit().apply {
                         putString(hashKey, sha256Hex(trimmedContent))
@@ -1027,6 +1076,17 @@ object ChannelRepository {
      * URL playlist akun login diproses dulu (biasanya server IPTV utama).
      * Setelah selesai memuat ulang dari disk dan menaikkan [channelsRevision] agar UI ikut terbarui.
      */
+    /** Unduh playlist.json akun dan merge DRM ke channel M3U yang sudah ada. */
+    suspend fun syncAccountPlaylistJsonDrm(context: Context) {
+        val jsonUrl = deriveV216JsonUrl(context)?.trim().orEmpty()
+        if (jsonUrl.isBlank()) return
+        withContext(Dispatchers.IO) {
+            refreshPlaylistFromServer(context, jsonUrl, forceFullFetch = true)
+        }
+        loadChannels(context)
+        _channelsRevision.value = _channelsRevision.value + 1
+    }
+
     suspend fun syncAllPlaylistsFromServer(context: Context, forceFullFetch: Boolean = true) {
         if (AuthRepository.isLoggedIn(context)) {
             try {
@@ -1040,7 +1100,18 @@ object ChannelRepository {
             }
         }
 
-        val ordered = collectPlaylistRefreshUrls(context)
+        val ordered = collectPlaylistRefreshUrls(context).toMutableList()
+
+        // Playlist akun (M3U) tidak membawa info DRM. Derive URL v216.json dari server base URL
+        // dan tambahkan ke daftar refresh agar DRM channel DASH (RCTI, GTV, dll.) terisi otomatis.
+        deriveV216JsonUrl(context)?.let { v216Url ->
+            if (!ordered.contains(v216Url)) {
+                ordered.add(v216Url)
+                addPlaylistUrl(context, v216Url)
+                android.util.Log.d("ChannelRepository", "Auto-adding v216 JSON: $v216Url")
+            }
+        }
+
         if (ordered.isEmpty()) {
             loadChannels(context)
             return
@@ -1056,6 +1127,37 @@ object ChannelRepository {
         }
         loadChannels(context)
         _channelsRevision.value = _channelsRevision.value + 1
+    }
+
+    /**
+     * Derive URL playlist JSON (v216 dengan DRM) dari URL playlist M3U akun.
+     * Server mql_manager punya dua endpoint:
+     *   - `/public/users/{appKey}/playlist.m3u` → M3U, TANPA DRM
+     *   - `/public/users/{appKey}/playlist.json` → JSON v216, DENGAN DRM
+     * App hanya menyimpan URL M3U — cukup ganti suffix untuk mendapat JSON.
+     * Contoh: `.../playlist.m3u` → `.../playlist.json`
+     */
+    private fun deriveV216JsonUrl(context: Context): String? {
+        val authUrl = AuthRepository.getResolvedPlaylistUrl(context).trim()
+        if (authUrl.isNotBlank()) {
+            // Endpoint JSON server mql_manager: ganti .m3u → .json atau ?format=json
+            if (authUrl.contains("/playlist.m3u", ignoreCase = true)) {
+                return authUrl.replace("/playlist.m3u", "/playlist.json", ignoreCase = true)
+            }
+            if (authUrl.contains(".m3u", ignoreCase = true)) {
+                return authUrl.replace(".m3u", ".json", ignoreCase = true)
+            }
+        }
+        // Fallback: derive dari server base URL (host tanpa port + /v216.json)
+        val base = AuthRepository.getServerBaseUrl(context).trim().ifBlank { return null }
+        return try {
+            val u = URL(base)
+            val host = u.host.ifBlank { return null }
+            val scheme = u.protocol.ifBlank { "http" }
+            "$scheme://$host/v216.json"
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun getPlaylistUrls(context: Context): List<String> {
@@ -1157,29 +1259,66 @@ object ChannelRepository {
     
     fun saveChannels(context: Context) {
         val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-        
-        // Save as JSON-like string
-        val channelsString = customChannels.joinToString("|") { channel ->
-            "${channel.id},${channel.name},${channel.url},${channel.logo},${channel.category},${channel.source},${channel.drmLicenseUrl}"
+
+        // Simpan sebagai JSON array agar field dengan koma (drmLicenseUrl ClearKey JSON) tidak terpotong.
+        val arr = JSONArray()
+        for (ch in customChannels) {
+            arr.put(
+                JSONObject()
+                    .put("id", ch.id)
+                    .put("name", ch.name)
+                    .put("url", ch.url)
+                    .put("logo", ch.logo)
+                    .put("category", ch.category)
+                    .put("source", ch.source)
+                    .put("drm", ch.drmLicenseUrl)
+            )
         }
-        editor.putString("custom_channels", channelsString)
-        editor.putInt("next_id", nextId)
-        editor.putBoolean("samples_cleared", sampleChannelsCleared)
-        editor.apply()
+        prefs.edit()
+            .putString("custom_channels_json", arr.toString())
+            .putInt("next_id", nextId)
+            .putBoolean("samples_cleared", sampleChannelsCleared)
+            .apply()
 
         _channelsRevision.value = _channelsRevision.value + 1
     }
     
     fun loadChannels(context: Context) {
         val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
-        val channelsString = prefs.getString("custom_channels", "") ?: ""
         sampleChannelsCleared = prefs.getBoolean("samples_cleared", false)
         nextId = prefs.getInt("next_id", 100)
-        
         customChannels.clear()
-        if (channelsString.isNotEmpty()) {
-            channelsString.split("|").forEach { channelStr ->
+
+        // Format baru: JSON array (aman terhadap koma dalam drmLicenseUrl)
+        val jsonStr = prefs.getString("custom_channels_json", "").orEmpty().trim()
+        if (jsonStr.isNotEmpty()) {
+            try {
+                val arr = JSONArray(jsonStr)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    customChannels.add(
+                        Channel(
+                            id = obj.optInt("id", 0),
+                            name = obj.optString("name", ""),
+                            url = obj.optString("url", ""),
+                            logo = obj.optString("logo", ""),
+                            category = obj.optString("category", ""),
+                            source = obj.optString("source", ""),
+                            drmLicenseUrl = obj.optString("drm", ""),
+                        )
+                    )
+                }
+                return
+            } catch (_: Exception) {
+                // Fall through ke format lama jika JSON korup
+            }
+        }
+
+        // Format lama (migrasi): comma-delimited — hanya dibaca jika format baru belum ada.
+        // Setelah dibaca, langsung disimpan ulang dalam format baru.
+        val legacyStr = prefs.getString("custom_channels", "").orEmpty()
+        if (legacyStr.isNotEmpty()) {
+            legacyStr.split("|").forEach { channelStr ->
                 val parts = channelStr.split(",")
                 if (parts.size >= 5) {
                     customChannels.add(
@@ -1190,11 +1329,13 @@ object ChannelRepository {
                             logo = parts[3],
                             category = parts[4],
                             source = if (parts.size >= 6) parts[5] else "",
-                            drmLicenseUrl = if (parts.size >= 7) parts[6] else ""
+                            drmLicenseUrl = if (parts.size >= 7) parts[6] else "",
                         )
                     )
                 }
             }
+            // Migrasi: simpan ulang ke format JSON baru sekarang
+            saveChannels(context)
         }
     }
     

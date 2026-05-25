@@ -128,7 +128,9 @@ class MainActivity : ComponentActivity() {
                     if (urls.isNotEmpty()) {
                         urls.forEach { playlistUrl ->
                             val isAccountPlaylist = authPlaylist.isNotBlank() &&
-                                playlistUrl.trim() == authPlaylist
+                                (playlistUrl.trim() == authPlaylist ||
+                                    playlistUrl.trim().replace("/playlist.m3u", "/playlist.json", ignoreCase = true) ==
+                                    authPlaylist.replace("/playlist.m3u", "/playlist.json", ignoreCase = true))
                             android.util.Log.d("MainActivity", "Auto-refreshing playlist from: $playlistUrl (forceFull=$isAccountPlaylist)")
                             ChannelRepository.refreshPlaylistFromServer(
                                 this@MainActivity,
@@ -782,6 +784,16 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ChannelRepository.loadChannels(this)
+        // Sinkron DRM dari playlist.json akun (M3U tidak membawa url_license)
+        if (AuthRepository.isLoggedIn(this)) {
+            lifecycleScope.launch {
+                try {
+                    ChannelRepository.syncAccountPlaylistJsonDrm(this@MainActivity)
+                } catch (e: Exception) {
+                    android.util.Log.w("MainActivity", "syncAccountPlaylistJsonDrm failed", e)
+                }
+            }
+        }
         startExpiryWatcher()
         startPlaylistAutoRefresh()
     }

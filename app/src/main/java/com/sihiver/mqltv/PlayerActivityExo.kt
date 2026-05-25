@@ -549,7 +549,10 @@ class PlayerActivityExo : ComponentActivity() {
 
             channel = com.sihiver.mqltv.playback.DrmPlaybackHelper.resolveChannelForPlayback(channel)
 
-            android.util.Log.d("PlayerActivityExo", "Playing channel: ${channel.name}, URL: ${channel.url}")
+            android.util.Log.d(
+                "PlayerActivityExo",
+                "Playing channel: ${channel.name}, URL: ${channel.url}, DRM: ${channel.drmLicenseUrl.take(80).ifBlank { "(kosong)" }}",
+            )
 
             val effectiveDrm = com.sihiver.mqltv.playback.DrmPlaybackHelper
                 .sanitizeForPlayback(channel.drmLicenseUrl)
