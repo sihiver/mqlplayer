@@ -276,7 +276,9 @@ class PlayerActivityVLC : ComponentActivity() {
             return
         }
 
-        playChannelDirect(channels[index])
+        val target = channels[index]
+        if (target.id == channelId) return
+        playChannelDirect(target)
     }
 
     override fun onDestroy() {
@@ -452,7 +454,7 @@ class PlayerActivityVLC : ComponentActivity() {
         channelListLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
                 val selectedId = result.data?.getIntExtra(ChannelListActivity.EXTRA_SELECTED_CHANNEL_ID, -1) ?: -1
-                if (selectedId > 0) {
+                if (selectedId > 0 && selectedId != channelId) {
                     ChannelRepository.loadChannels(this)
                     val channel = ChannelRepository.getChannelById(selectedId)
                     if (channel != null) {
@@ -762,7 +764,12 @@ class PlayerActivityVLC : ComponentActivity() {
     // Direct play untuk D-pad - sama seperti playChannel, full reinit
     private fun playChannelDirect(ch: Channel) {
         android.util.Log.d("PlayerActivityVLC", "playChannelDirect called: ${ch.name}, URL: ${ch.url}")
-        
+
+        if (ch.id == channelId) {
+            android.util.Log.d("PlayerActivityVLC", "Already on ${ch.name}, skip switch")
+            return
+        }
+
         // Cegah double call
         if (isChangingChannel) {
             android.util.Log.d("PlayerActivityVLC", "Already changing channel, ignoring")

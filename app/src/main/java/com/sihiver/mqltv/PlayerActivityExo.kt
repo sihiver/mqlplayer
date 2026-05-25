@@ -248,7 +248,9 @@ class PlayerActivityExo : ComponentActivity() {
             return
         }
 
-        switchChannel(channels[index])
+        val target = channels[index]
+        if (target.id == channelId) return
+        switchChannel(target)
     }
 
     override fun onDestroy() {
@@ -336,7 +338,7 @@ class PlayerActivityExo : ComponentActivity() {
         channelListLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
                 val selectedId = result.data?.getIntExtra(ChannelListActivity.EXTRA_SELECTED_CHANNEL_ID, -1) ?: -1
-                if (selectedId > 0) {
+                if (selectedId > 0 && selectedId != channelId) {
                     ChannelRepository.loadChannels(this)
                     val channel = ChannelRepository.getChannelById(selectedId)
                     if (channel != null) {
@@ -862,6 +864,10 @@ class PlayerActivityExo : ComponentActivity() {
     }
     
     private fun switchChannel(channel: Channel) {
+        if (channel.id == channelId) {
+            android.util.Log.d("PlayerActivityExo", "Already on ${channel.name}, skip switch")
+            return
+        }
         try {
             channelId = channel.id
             currentChannelIndex.value =

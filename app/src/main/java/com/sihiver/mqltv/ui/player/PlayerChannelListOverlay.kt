@@ -109,6 +109,21 @@ private fun categoryLabel(key: String): String {
     }
 }
 
+/** Tutup overlay; putar hanya jika channel berbeda dari yang sedang aktif. */
+private fun dismissOverlayOrPlayChannel(
+    channel: Channel,
+    currentChannelId: Int,
+    nav: PlayerChannelListNavState,
+    onPlayChannel: (Channel) -> Unit,
+) {
+    nav.showChannelList.value = false
+    nav.headerSelected.value = false
+    nav.categoryNavDirection.value = 0
+    if (channel.id != currentChannelId) {
+        onPlayChannel(channel)
+    }
+}
+
 fun handlePlayerChannelListKeyEvent(
     event: KeyEvent,
     currentChannelId: Int,
@@ -153,10 +168,7 @@ fun handlePlayerChannelListKeyEvent(
                     )
                     if (nav.selectedListIndex.value in filteredChannels.indices) {
                         val selectedChannel = filteredChannels[nav.selectedListIndex.value]
-                        nav.showChannelList.value = false
-                        nav.headerSelected.value = false
-                        nav.categoryNavDirection.value = 0
-                        onPlayChannel(selectedChannel)
+                        dismissOverlayOrPlayChannel(selectedChannel, currentChannelId, nav, onPlayChannel)
                     }
                 }
                 return true
@@ -448,8 +460,7 @@ fun PlayerChannelListOverlay(
                                         )
                                         .clickable {
                                             nav.selectedListIndex.value = index
-                                            nav.showChannelList.value = false
-                                            onPlayChannel(item)
+                                            dismissOverlayOrPlayChannel(item, currentChannelId, nav, onPlayChannel)
                                         }
                                         .padding(horizontal = 16.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically

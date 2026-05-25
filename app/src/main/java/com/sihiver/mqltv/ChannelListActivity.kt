@@ -130,6 +130,10 @@ class ChannelListActivity : ComponentActivity() {
     }
 
     private fun returnResult(channel: Channel) {
+        if (channel.id == currentChannelId) {
+            showChannelList.value = false
+            return
+        }
         ChannelRepository.loadChannels(this)
         val overlayKey = selectedCategory.value.trim()
 
