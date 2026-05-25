@@ -6,7 +6,6 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.BitmapFactory
 import android.os.Build
 import android.util.Log
 import androidx.tvprovider.media.tv.Channel
@@ -48,12 +47,18 @@ object TvHomeRecommendations {
 
     /** Sinkronkan saluran + program di background (panggil setelah menonton / onResume). */
     @UnstableApi
-    fun syncAsync(context: Context) {
+    fun syncAsync(context: Context, activity: Activity? = null) {
         if (!isSupported(context)) return
         val appContext = context.applicationContext
         scope.launch {
             runCatching { ensureChannelAndSyncPrograms(appContext) }
                 .onFailure { Log.e(TAG, "syncAsync failed", it) }
+            // requestChannelBrowsable harus dipanggil di Main thread SETELAH channel_id tersimpan
+            activity?.let { act ->
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    requestChannelBrowsableIfNeeded(act)
+                }
+            }
         }
     }
 
@@ -85,14 +90,56 @@ object TvHomeRecommendations {
         }
     }
 
+    /**
+     * Kembalikan semua channel preview milik package ini dari TvProvider.
+     */
+    @SuppressLint("RestrictedApi")
+    private fun findAllOurChannelIds(context: Context): List<Long> {
+        val ids = mutableListOf<Long>()
+        try {
+            context.contentResolver.query(
+                TvContractCompat.Channels.CONTENT_URI,
+                arrayOf(TvContractCompat.Channels._ID),
+                null, null, null
+            )?.use { cursor ->
+                val colId = cursor.getColumnIndex(TvContractCompat.Channels._ID)
+                while (cursor.moveToNext()) {
+                    if (colId >= 0) ids.add(cursor.getLong(colId))
+                }
+            }
+        } catch (_: Exception) {}
+        return ids
+    }
+
     @UnstableApi
     private fun getOrCreatePreviewChannelId(context: Context): Long {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val savedId = prefs.getLong(KEY_CHANNEL_ID, -1L)
-        if (savedId > 0L && previewChannelExists(context, savedId)) {
+
+        // Ambil semua channel milik app ini dari TvProvider
+        val allIds = findAllOurChannelIds(context)
+        Log.d(TAG, "TvProvider channels for our package: $allIds (savedId=$savedId)")
+
+        // Kalau channel yang disimpan masih ada, hapus semua sisanya
+        if (savedId > 0L && allIds.contains(savedId)) {
+            val extras = allIds.filter { it != savedId }
+            extras.forEach { deleteChannel(context, it) }
+            if (extras.isNotEmpty()) Log.d(TAG, "Deleted ${extras.size} duplicate channel(s): $extras")
             return savedId
         }
 
+        // savedId tidak valid — coba reuse channel pertama yang ada, hapus sisanya
+        if (allIds.isNotEmpty()) {
+            val reuse = allIds.first()
+            val extras = allIds.drop(1)
+            extras.forEach { deleteChannel(context, it) }
+            if (extras.isNotEmpty()) Log.d(TAG, "Deleted ${extras.size} duplicate channel(s): $extras")
+            prefs.edit { putLong(KEY_CHANNEL_ID, reuse) }
+            Log.d(TAG, "Reusing existing TV preview channel id=$reuse")
+            return reuse
+        }
+
+        // Tidak ada channel sama sekali — buat baru
         val appLinkIntent = Intent(context, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
@@ -108,38 +155,34 @@ object TvHomeRecommendations {
         ) ?: throw IllegalStateException("Failed to insert TV preview channel")
 
         val channelId = ContentUris.parseId(channelUri)
-        storeChannelLogo(context, channelId)
-        prefs.edit { putLong(KEY_CHANNEL_ID, channelId) }
+        prefs.edit {
+            putLong(KEY_CHANNEL_ID, channelId)
+            putBoolean(KEY_BROWSABLE_REQUESTED, false) // paksa request browsable untuk channel baru
+        }
         Log.d(TAG, "Created TV preview channel id=$channelId")
         return channelId
     }
 
-    private fun previewChannelExists(context: Context, channelId: Long): Boolean {
-        return try {
-            context.contentResolver.query(
-                TvContractCompat.buildChannelUri(channelId),
-                arrayOf(TvContractCompat.Channels._ID),
-                null,
-                null,
-                null,
-            )?.use { it.moveToFirst() } == true
-        } catch (_: Exception) {
-            false
+    private fun deleteChannel(context: Context, channelId: Long) {
+        try {
+            context.contentResolver.delete(
+                TvContractCompat.buildChannelUri(channelId), null, null
+            )
+            Log.d(TAG, "Deleted channel id=$channelId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to delete channel id=$channelId", e)
         }
     }
 
     private fun storeChannelLogo(context: Context, channelId: Long) {
-        try {
-            val bitmap = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_channel)
-            if (bitmap != null) {
-                ChannelLogoUtils.storeChannelLogo(context, channelId, bitmap)
-                return
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "storeChannelLogo bitmap failed", e)
+        val bitmap = TvChannelLogoHelper.renderChannelIconBitmap(context)
+        if (bitmap != null) {
+            val ok = ChannelLogoUtils.storeChannelLogo(context, channelId, bitmap)
+            if (!bitmap.isRecycled) bitmap.recycle()
+            Log.d(TAG, "storeChannelLogo id=$channelId ok=$ok")
+        } else {
+            Log.w(TAG, "storeChannelLogo: bitmap null, skip")
         }
-        val logoUri = "android.resource://${context.packageName}/${R.mipmap.ic_channel}".toUri()
-        ChannelLogoUtils.storeChannelLogo(context, channelId, logoUri)
     }
 
     @UnstableApi
@@ -153,6 +196,7 @@ object TvHomeRecommendations {
         }
 
         val channelId = getOrCreatePreviewChannelId(context)
+        storeChannelLogo(context, channelId)
         syncPreviewPrograms(context, channelId, recentlyWatched)
         Log.d(TAG, "Synced ${recentlyWatched.size} program(s) to TV home channel $channelId")
     }
