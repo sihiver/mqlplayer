@@ -329,8 +329,8 @@ class PlayerActivityExo : ComponentActivity() {
             return
         }
 
-        // Get channel ID from intent
-        channelId = intent.getIntExtra("CHANNEL_ID", -1)
+        // Get channel ID from intent (termasuk deep link dari beranda Android TV)
+        channelId = resolveChannelIdFromIntent(intent)
         android.util.Log.d("PlayerActivityExo", "Received channel ID: $channelId")
 
         channelListLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -906,6 +906,19 @@ class PlayerActivityExo : ComponentActivity() {
 
     private fun createMediaItem(channel: Channel): MediaItem {
         return com.sihiver.mqltv.playback.DrmPlaybackHelper.createMediaItem(channel)
+    }
+
+    /** CHANNEL_ID dari extra atau intent URI (kartu program di beranda TV). */
+    private fun resolveChannelIdFromIntent(intent: Intent?): Int {
+        var id = intent?.getIntExtra("CHANNEL_ID", -1) ?: -1
+        if (id > 0) return id
+        val dataString = intent?.dataString ?: return -1
+        return try {
+            val parsed = Intent.parseUri(dataString, Intent.URI_INTENT_SCHEME)
+            parsed.getIntExtra("CHANNEL_ID", -1).takeIf { it > 0 } ?: -1
+        } catch (_: Exception) {
+            -1
+        }
     }
 
     @Composable

@@ -7,4 +7,7 @@
     <string name="play">Play</string>
     <string name="pause">Pause</string>
     <string name="buffering">Buffering…</string>
+    <string name="tv_channel_recently_watched">Terakhir Ditonton</string>
+    <string name="tv_channel_recently_watched_desc">Lanjutkan menonton channel TV terakhir Anda di MQLTV</string>
+    <string name="tv_program_live_tv">Live TV</string>
 </resources>

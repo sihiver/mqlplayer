@@ -794,6 +794,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        ChannelRepository.loadRecentlyWatched(this)
+        com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(this)
+        com.sihiver.mqltv.tv.TvHomeRecommendations.requestChannelBrowsableIfNeeded(this)
         startExpiryWatcher()
         startPlaylistAutoRefresh()
     }

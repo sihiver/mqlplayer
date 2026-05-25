@@ -104,6 +104,9 @@ dependencies {
 
     // Splash Screen API (backport sampai API 21)
     implementation("androidx.core:core-splashscreen:1.0.1")
+
+    // Android TV — saluran rekomendasi di beranda (API 26+)
+    implementation("androidx.tvprovider:tvprovider:1.1.0")
     
     // VLC for Android - libVLC
     implementation("org.videolan.android:libvlc-all:3.6.0")

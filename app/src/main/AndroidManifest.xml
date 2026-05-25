@@ -8,6 +8,8 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"
         tools:ignore="PhotoAndVideoPolicy,SelectedPhotoAccess" />
+    <!-- Saluran rekomendasi di beranda Android TV (TvProvider) -->
+    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
 
     <uses-feature
         android:name="android.hardware.touchscreen"
@@ -64,11 +66,37 @@
         
         <activity
             android:name=".PlayerActivityExo"
-            android:exported="false"
+            android:exported="true"
             android:hardwareAccelerated="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
             android:screenOrientation="unspecified"
-            android:launchMode="singleTop" />
+            android:launchMode="singleTop">
+            <!-- Intent dari kartu program di beranda TV -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".tv.TvProgramsInitializeReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.media.tv.action.INITIALIZE_PROGRAMS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".tv.TvPreviewProgramRemovedReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.media.tv.action.PREVIEW_PROGRAM_BROWSABLE_DISABLED" />
+            </intent-filter>
+        </receiver>
         
         <activity
             android:name=".PlayerActivityVLC"

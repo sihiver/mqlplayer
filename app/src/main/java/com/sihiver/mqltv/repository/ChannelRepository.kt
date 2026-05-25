@@ -1376,6 +1376,7 @@ object ChannelRepository {
         }
         saveRecentlyWatched(context)
         android.util.Log.d("ChannelRepository", "Added channel $channelId to recently watched")
+        com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(context)
     }
     
     fun getRecentlyWatched(): List<Channel> {
