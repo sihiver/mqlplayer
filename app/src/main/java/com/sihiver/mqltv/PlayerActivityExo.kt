@@ -344,6 +344,8 @@ class PlayerActivityExo : ComponentActivity() {
                     }
                 }
             }
+            // Overlay ditutup — pastikan beranda TV ikut sync (tanpa harus keluar app)
+            com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(this, activity = this)
         }
 
         // Create root frame layout
@@ -438,6 +440,7 @@ class PlayerActivityExo : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         requestedOrientation = resolvePlayerRequestedOrientation(this)
+        com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(this, activity = this)
         startExpiryWatcher()
         startIdleCloseWatcher()
     }

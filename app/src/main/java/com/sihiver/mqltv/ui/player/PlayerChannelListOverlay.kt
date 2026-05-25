@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -80,15 +81,6 @@ private fun prioritizeOverlayCategoryNames(categories: List<String>): List<Strin
     return prioritized + rest
 }
 
-private fun sortChannelsLocalSportsFirst(channels: List<Channel>): List<Channel> {
-    fun catEq(ch: Channel, name: String) = ch.category.trim().equals(name, ignoreCase = true)
-    val local = channels.filter { catEq(it, "Local") }
-    val sports = channels.filter { catEq(it, "Sports") }
-    val takenIds = (local + sports).map { it.id }.toSet()
-    val rest = channels.filter { it.id !in takenIds }
-    return local + sports + rest
-}
-
 private fun buildCategoryKeys(allChannels: List<Channel>): List<String> {
     val categories = allChannels
         .map { it.category.trim() }
@@ -103,21 +95,6 @@ private fun buildCategoryKeys(allChannels: List<Channel>): List<String> {
         add("favorites")
         add("recent")
         addAll(ordered)
-    }
-}
-
-private fun filterChannelsForOverlayCategory(
-    selectedKey: String,
-    allChannels: List<Channel>,
-    favoriteChannels: List<Channel>,
-): List<Channel> {
-    return when (selectedKey) {
-        "all" -> sortChannelsLocalSportsFirst(allChannels)
-        "favorites" -> favoriteChannels
-        "recent" -> allChannels.take(10)
-        else -> allChannels.filter { ch ->
-            ch.category.trim().equals(selectedKey, ignoreCase = true)
-        }
     }
 }
 
@@ -171,12 +148,8 @@ fun handlePlayerChannelListKeyEvent(
                         return true
                     }
 
-                    val allChannels = ChannelRepository.getAllChannels()
-                    val favoriteChannels = ChannelRepository.getFavorites()
-                    val filteredChannels = filterChannelsForOverlayCategory(
+                    val filteredChannels = ChannelRepository.getFilteredChannelsForOverlayCategoryKey(
                         nav.selectedCategory.value,
-                        allChannels,
-                        favoriteChannels,
                     )
                     if (nav.selectedListIndex.value in filteredChannels.indices) {
                         val selectedChannel = filteredChannels[nav.selectedListIndex.value]
@@ -198,11 +171,8 @@ fun handlePlayerChannelListKeyEvent(
     val currentIndex = allChannels.indexOfFirst { it.id == currentChannelId }
 
     if (nav.showChannelList.value) {
-        val favoriteChannels = ChannelRepository.getFavorites()
-        val filteredChannels = filterChannelsForOverlayCategory(
+        val filteredChannels = ChannelRepository.getFilteredChannelsForOverlayCategoryKey(
             nav.selectedCategory.value,
-            allChannels,
-            favoriteChannels,
         )
 
         when (keyCode) {
@@ -282,20 +252,26 @@ fun PlayerChannelListOverlay(
     currentChannelId: Int,
     onPlayChannel: (Channel) -> Unit,
 ) {
-    // Observe repository revision so composable recomposes when channels change.
-    val channelsRevision by ChannelRepository.channelsRevision.collectAsState()
+    val context = LocalContext.current
 
-    // Read current channel lists (recomputed when channelsRevision changes due to collectAsState above).
+    // Observe repository revision so composable recomposes when channels / recently watched change.
+    val channelsRevision by ChannelRepository.channelsRevision.collectAsState()
+    val recentlyWatchedRevision by ChannelRepository.recentlyWatchedRevision.collectAsState()
+
+    LaunchedEffect(Unit) {
+        ChannelRepository.loadFavorites(context)
+    }
+
     val allChannels: List<Channel> = ChannelRepository.getAllChannels()
     val favoriteChannels: List<Channel> = ChannelRepository.getFavorites()
     val categoryKeys: List<String> = buildCategoryKeys(allChannels)
 
-    val filteredChannels: List<Channel> = remember(nav.selectedCategory.value, channelsRevision) {
-        filterChannelsForOverlayCategory(
-            nav.selectedCategory.value,
-            allChannels,
-            favoriteChannels,
-        )
+    val filteredChannels: List<Channel> = remember(
+        nav.selectedCategory.value,
+        channelsRevision,
+        recentlyWatchedRevision,
+    ) {
+        ChannelRepository.getFilteredChannelsForOverlayCategoryKey(nav.selectedCategory.value)
     }
 
     val listState = rememberLazyListState()

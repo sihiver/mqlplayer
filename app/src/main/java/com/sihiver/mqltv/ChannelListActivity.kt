@@ -75,6 +75,7 @@ class ChannelListActivity : ComponentActivity() {
         })
 
         ChannelRepository.loadChannels(this)
+        ChannelRepository.loadFavorites(this)
 
         currentChannelId = intent.getIntExtra(EXTRA_CURRENT_CHANNEL_ID, -1)
         val initialOverlayCat = ChannelRepository.resolveInitialChannelListOverlayCategory(this, currentChannelId)

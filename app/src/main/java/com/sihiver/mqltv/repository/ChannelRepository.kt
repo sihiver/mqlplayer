@@ -26,6 +26,9 @@ object ChannelRepository {
     private val _channelsRevision = MutableStateFlow(0)
     val channelsRevision: StateFlow<Int> = _channelsRevision
 
+    private val _recentlyWatchedRevision = MutableStateFlow(0)
+    val recentlyWatchedRevision: StateFlow<Int> = _recentlyWatchedRevision
+
     private const val PREFS_APP = "mqltv_prefs"
     private const val KEY_PLAYLIST_URL_LEGACY = "playlist_url"
     private const val KEY_PLAYLIST_URLS = "playlist_urls"
@@ -277,7 +280,7 @@ object ChannelRepository {
         return when (selectedKey) {
             "all" -> sortLiveChannelsLocalSportsFirst(allChannels)
             "favorites" -> favorites
-            "recent" -> allChannels.take(10)
+            "recent" -> getRecentlyWatched()
             else -> allChannels.filter { ch ->
                 ch.category.trim().equals(selectedKey, ignoreCase = true)
             }
@@ -1398,6 +1401,7 @@ object ChannelRepository {
             recentlyWatchedIds.removeAt(recentlyWatchedIds.size - 1)
         }
         saveRecentlyWatched(context)
+        _recentlyWatchedRevision.value = _recentlyWatchedRevision.value + 1
         android.util.Log.d("ChannelRepository", "Added channel $channelId to recently watched")
         com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(context)
     }
@@ -1427,19 +1431,27 @@ object ChannelRepository {
     
     private fun saveRecentlyWatched(context: Context) {
         val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-        editor.putString("recently_watched", recentlyWatchedIds.joinToString(","))
-        editor.apply()
+        prefs.edit()
+            .putString("recently_watched", recentlyWatchedIds.joinToString(","))
+            .commit()
     }
-    
+
+    /**
+     * Muat riwayat dari disk. Jangan panggil dari player overlay setelah [addToRecentlyWatched]
+     * — memori sudah terbaru; reload bisa menimpa dengan prefs lama bila dipanggil terlalu cepat.
+     */
     fun loadRecentlyWatched(context: Context) {
         val prefs = context.getSharedPreferences("channels", Context.MODE_PRIVATE)
         val recentString = prefs.getString("recently_watched", "") ?: ""
-        recentlyWatchedIds.clear()
-        if (recentString.isNotEmpty()) {
-            recentlyWatchedIds.addAll(
-                recentString.split(",").mapNotNull { it.toIntOrNull() }
-            )
+        val fromDisk = if (recentString.isNotEmpty()) {
+            recentString.split(",").mapNotNull { it.toIntOrNull() }
+        } else {
+            emptyList()
+        }
+        if (fromDisk != recentlyWatchedIds) {
+            recentlyWatchedIds.clear()
+            recentlyWatchedIds.addAll(fromDisk)
+            _recentlyWatchedRevision.value = _recentlyWatchedRevision.value + 1
         }
     }
     

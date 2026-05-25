@@ -306,6 +306,7 @@ class PlayerActivityVLC : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         applyPlaybackOrientation()
+        com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(this, activity = this)
         startExpiryWatcher()
         startIdleCloseWatcher()
     }
@@ -455,6 +456,7 @@ class PlayerActivityVLC : ComponentActivity() {
                     }
                 }
             }
+            com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(this, activity = this)
         }
         
         val rootLayout = FrameLayout(this).apply {
