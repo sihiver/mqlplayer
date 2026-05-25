@@ -378,9 +378,19 @@ class PlayerActivityVLC : ComponentActivity() {
         }
     }
 
-    private fun applyAspectRatioSetting(player: MediaPlayer?, aspectRatioSetting: String) {
+    private fun applyAspectRatioSetting(
+        player: MediaPlayer?,
+        aspectRatioSetting: String,
+        videoWidth: Int = 0,
+        videoHeight: Int = 0,
+    ) {
+        val effective = com.sihiver.mqltv.playback.VideoDisplayHelper.effectiveAspectRatioSetting(
+            aspectRatioSetting,
+            videoWidth,
+            videoHeight,
+        )
         // Use reflection to stay compatible across libvlc versions
-        when (aspectRatioSetting) {
+        when (effective) {
             "Fill" -> {
                 // Typical TV is 16:9; cropping to 16:9 fills screen.
                 setPlayerAspectRatio(player, null)
@@ -619,12 +629,29 @@ class PlayerActivityVLC : ComponentActivity() {
                         }
                         MediaPlayer.Event.Vout -> {
                             android.util.Log.d("PlayerActivityVLC", "Event: Vout count=${event.voutCount}")
-                            // Video output tersedia = video sudah siap ditampilkan
-                            if (event.voutCount > 0 && !isVideoReady.value) {
-                                isVideoReady.value = true
-                                android.util.Log.d("PlayerActivityVLC", "Video ready")
-                                // Hide buffering
-                                isBuffering.value = false
+                            if (event.voutCount > 0) {
+                                val vw = vlcPlayer?.let { p ->
+                                    try {
+                                        p.javaClass.getMethod("getVideoWidth").invoke(p) as? Int ?: 0
+                                    } catch (_: Exception) {
+                                        0
+                                    }
+                                } ?: 0
+                                val vh = vlcPlayer?.let { p ->
+                                    try {
+                                        p.javaClass.getMethod("getVideoHeight").invoke(p) as? Int ?: 0
+                                    } catch (_: Exception) {
+                                        0
+                                    }
+                                } ?: 0
+                                if (vw > 0 && vh > 0) {
+                                    applyAspectRatioSetting(vlcPlayer, settings.aspectRatio, vw, vh)
+                                }
+                                if (!isVideoReady.value) {
+                                    isVideoReady.value = true
+                                    android.util.Log.d("PlayerActivityVLC", "Video ready")
+                                    isBuffering.value = false
+                                }
                             }
                         }
                         MediaPlayer.Event.TimeChanged -> {

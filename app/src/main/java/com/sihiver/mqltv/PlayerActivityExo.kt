@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -364,15 +365,9 @@ class PlayerActivityExo : ComponentActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
 
-            // Apply aspect ratio from settings
-            val aspectRatioSetting = prefs.getString("aspect_ratio", "Fit") ?: "Fit"
-            resizeMode = when (aspectRatioSetting) {
-                "Fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                "Zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                "16:9" -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                "4:3" -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-            }
+            resizeMode = com.sihiver.mqltv.playback.VideoDisplayHelper.exoResizeMode(
+                prefs.getString("aspect_ratio", "Fit") ?: "Fit",
+            )
 
             // Don't show buffering indicator for smoother UX
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
@@ -523,6 +518,22 @@ class PlayerActivityExo : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    private fun updatePlayerViewResizeMode(
+        videoWidth: Int = 0,
+        videoHeight: Int = 0,
+        pixelAspectRatio: Float = 1f,
+    ) {
+        val view = playerView ?: return
+        val prefs = getSharedPreferences("video_settings", Context.MODE_PRIVATE)
+        val aspectSetting = prefs.getString("aspect_ratio", "Fit") ?: "Fit"
+        view.resizeMode = com.sihiver.mqltv.playback.VideoDisplayHelper.exoResizeMode(
+            aspectSetting,
+            videoWidth,
+            videoHeight,
+            pixelAspectRatio,
+        )
+    }
+
     private fun initializePlayer() {
         try {
             val prefs = getSharedPreferences("video_settings", Context.MODE_PRIVATE)
@@ -636,6 +647,14 @@ class PlayerActivityExo : ComponentActivity() {
                     playWhenReady = true
                     
                     addListener(object : Player.Listener {
+                        override fun onVideoSizeChanged(videoSize: VideoSize) {
+                            updatePlayerViewResizeMode(
+                                videoSize.width,
+                                videoSize.height,
+                                videoSize.pixelWidthHeightRatio,
+                            )
+                        }
+
                         override fun onPlaybackStateChanged(playbackState: Int) {
                             when (playbackState) {
                                 Player.STATE_READY -> {
