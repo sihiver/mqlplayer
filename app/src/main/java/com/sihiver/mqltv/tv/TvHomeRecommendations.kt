@@ -76,11 +76,7 @@ object TvHomeRecommendations {
                     )
                 }.onFailure { Log.e(TAG, "syncAsync failed", it) }
             }
-            activity?.let { act ->
-                withContext(Dispatchers.Main) {
-                    requestChannelBrowsableIfNeeded(act)
-                }
-            }
+            ensureChannelBrowsable(appContext)
         }
     }
 
@@ -102,6 +98,7 @@ object TvHomeRecommendations {
                     )
                 }.onFailure { Log.e(TAG, "syncForLauncherRefresh failed", it) }
             }
+            ensureChannelBrowsable(appContext)
         }
     }
 
@@ -137,27 +134,70 @@ object TvHomeRecommendations {
                         touchChannel = true,
                     )
                 }.onFailure { Log.e(TAG, "syncBlocking failed", it) }
+                ensureChannelBrowsable(context.applicationContext)
             }
         }
     }
 
-    /**
-     * Minta sistem menampilkan saluran default di beranda (hanya saat activity di foreground).
-     */
+    /** Minta saluran default tampil di beranda TV (aktif secara default). */
     fun requestChannelBrowsableIfNeeded(activity: Activity) {
-        if (!isSupported(activity) || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_BROWSABLE_REQUESTED, false)) return
+        ensureChannelBrowsable(activity)
+    }
 
+    /**
+     * Aktifkan saluran "Terakhir Ditonton" di beranda: set [COLUMN_BROWSABLE] + minta sistem
+     * menampilkannya (saluran preview pertama boleh langsung enable).
+     */
+    fun ensureChannelBrowsable(context: Context) {
+        if (!isSupported(context) || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val channelId = prefs.getLong(KEY_CHANNEL_ID, -1L)
         if (channelId <= 0L) return
 
         try {
-            TvContractCompat.requestChannelBrowsable(activity, channelId)
+            appContext.contentResolver.update(
+                TvContractCompat.buildChannelUri(channelId),
+                android.content.ContentValues().apply {
+                    put(TvContractCompat.Channels.COLUMN_BROWSABLE, 1)
+                },
+                null,
+                null,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "setBrowsable failed", e)
+        }
+
+        if (isPreviewChannelBrowsable(appContext, channelId)) {
             prefs.edit { putBoolean(KEY_BROWSABLE_REQUESTED, true) }
-            Log.d(TAG, "requestChannelBrowsable for channelId=$channelId")
+            Log.d(TAG, "Channel $channelId browsable=true")
+            return
+        }
+
+        try {
+            TvContractCompat.requestChannelBrowsable(appContext, channelId)
+            prefs.edit { putBoolean(KEY_BROWSABLE_REQUESTED, true) }
+            Log.d(TAG, "requestChannelBrowsable channelId=$channelId")
         } catch (e: Exception) {
             Log.w(TAG, "requestChannelBrowsable failed", e)
+        }
+    }
+
+    private fun isPreviewChannelBrowsable(context: Context, tvChannelId: Long): Boolean {
+        return try {
+            context.contentResolver.query(
+                TvContractCompat.buildChannelUri(tvChannelId),
+                arrayOf(TvContractCompat.Channels.COLUMN_BROWSABLE),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return false
+                val col = cursor.getColumnIndex(TvContractCompat.Channels.COLUMN_BROWSABLE)
+                col >= 0 && cursor.getInt(col) == 1
+            } ?: false
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -219,7 +259,7 @@ object TvHomeRecommendations {
         val channelId = ContentUris.parseId(channelUri)
         prefs.edit {
             putLong(KEY_CHANNEL_ID, channelId)
-            putBoolean(KEY_BROWSABLE_REQUESTED, false) // paksa request browsable untuk channel baru
+            putBoolean(KEY_BROWSABLE_REQUESTED, false)
         }
         Log.d(TAG, "Created TV preview channel id=$channelId")
         return channelId
@@ -279,6 +319,7 @@ object TvHomeRecommendations {
             fullReplace = fullReplacePrograms,
         )
         notifyLauncherProgramsChanged(context, channelId)
+        ensureChannelBrowsable(context)
         Log.d(
             TAG,
             "Synced ${recentlyWatched.size} program(s) to TV home channel $channelId " +
@@ -316,6 +357,7 @@ object TvHomeRecommendations {
             .setAppLinkIntentUri(appLinkIntentUri)
             .setAppLinkText(channelTitle)
             .setAppLinkIconUri(iconUri)
+            .setBrowsable(true)
             .build()
             .toContentValues()
 
