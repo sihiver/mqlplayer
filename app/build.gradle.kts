@@ -1,4 +1,3 @@
-import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -6,8 +5,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
-
-val libsCatalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
 android {
     namespace = "com.sihiver.mqltv"
@@ -68,58 +65,58 @@ kotlin {
 
 dependencies {
 
-    implementation(libsCatalog.findLibrary("androidx-core-ktx").get())
-    implementation(libsCatalog.findLibrary("androidx-appcompat").get())
-    implementation(platform(libsCatalog.findLibrary("androidx-compose-bom").get()))
-    implementation(libsCatalog.findLibrary("androidx-compose-ui").get())
-    implementation(libsCatalog.findLibrary("androidx-compose-ui-graphics").get())
-    implementation(libsCatalog.findLibrary("androidx-compose-ui-tooling-preview").get())
-    implementation(libsCatalog.findLibrary("androidx-tv-foundation").get())
-    implementation(libsCatalog.findLibrary("androidx-tv-material").get())
-    implementation(libsCatalog.findLibrary("androidx-lifecycle-runtime-ktx").get())
-    implementation(libsCatalog.findLibrary("androidx-activity-compose").get())
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.tv.foundation)
+    implementation(libs.androidx.tv.material)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
 
     // Material3 for phone UI
-    implementation(libsCatalog.findLibrary("androidx-compose-material3").get())
-    implementation(libsCatalog.findLibrary("androidx-compose-material-icons-extended").get())
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
 
     // ExoPlayer for IPTV streaming (Media3)
-    implementation(libsCatalog.findLibrary("androidx-media3-exoplayer").get())
-    implementation(libsCatalog.findLibrary("androidx-media3-exoplayer-hls").get())
-    implementation(libsCatalog.findLibrary("androidx-media3-exoplayer-dash").get()) // DASH + DRM support
-    implementation(libsCatalog.findLibrary("androidx-media3-ui").get())
-    implementation(libsCatalog.findLibrary("androidx-media3-extractor").get())
-    implementation(libsCatalog.findLibrary("androidx-media3-exoplayer-rtsp").get())
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.exoplayer.hls)
+    implementation(libs.androidx.media3.exoplayer.dash) // DASH + DRM support
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.extractor)
+    implementation(libs.androidx.media3.exoplayer.rtsp)
 
     // NextLib FFmpeg extension for MPEG-L2 audio codec support (like M3UAndroid)
-    implementation(libsCatalog.findLibrary("io-github-anilbeesetti-nextlib-media3ext").get())
+    implementation(libs.io.github.anilbeesetti.nextlib.media3ext)
 
     // OkHttp DataSource for ExoPlayer network streaming
-    implementation(libsCatalog.findLibrary("androidx-media3-datasource-okhttp").get())
+    implementation(libs.androidx.media3.datasource.okhttp)
 
     // ViewModel
-    implementation(libsCatalog.findLibrary("androidx-lifecycle-viewmodel-compose").get())
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     // Coil for image loading
-    implementation(libsCatalog.findLibrary("coil-compose").get())
+    implementation(libs.coil.compose)
 
     // Coroutines
-    implementation(libsCatalog.findLibrary("androidx-coroutines-android").get())
+    implementation(libs.androidx.coroutines.android)
 
     // Encrypted storage for sensitive credentials
-    implementation(libsCatalog.findLibrary("androidx-security-crypto").get())
+    implementation(libs.androidx.security.crypto)
 
     // Splash Screen API (backport sampai API 21)
-    implementation(libsCatalog.findLibrary("androidx-core-splashscreen").get())
+    implementation(libs.androidx.core.splashscreen)
 
     // Android TV — saluran rekomendasi di beranda (API 26+)
-    implementation(libsCatalog.findLibrary("androidx-tvprovider").get())
+    implementation(libs.androidx.tvprovider)
     
     // VLC for Android - libVLC
-    implementation(libsCatalog.findLibrary("org-videolan-android-libvlc-all").get())
+    implementation(libs.org.videolan.android.libvlc.all)
     
-    androidTestImplementation(platform(libsCatalog.findLibrary("androidx-compose-bom").get()))
-    androidTestImplementation(libsCatalog.findLibrary("androidx-compose-ui-test-junit4").get())
-    debugImplementation(libsCatalog.findLibrary("androidx-compose-ui-tooling").get())
-    debugImplementation(libsCatalog.findLibrary("androidx-compose-ui-test-manifest").get())
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
