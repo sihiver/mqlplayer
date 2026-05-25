@@ -2,6 +2,7 @@ package com.sihiver.mqltv.tv
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -57,12 +58,57 @@ object TvHomeRecommendations {
         val appContext = context.applicationContext
         scope.launch {
             syncMutex.withLock {
-                runCatching { ensureChannelAndSyncPrograms(appContext) }
-                    .onFailure { Log.e(TAG, "syncAsync failed", it) }
+                runCatching {
+                    ensureChannelAndSyncPrograms(
+                        appContext,
+                        fullReplacePrograms = false,
+                        touchChannel = false,
+                    )
+                }.onFailure { Log.e(TAG, "syncAsync failed", it) }
             }
             activity?.let { act ->
                 withContext(Dispatchers.Main) {
                     requestChannelBrowsableIfNeeded(act)
+                }
+            }
+        }
+    }
+
+    /**
+     * Sync agresif saat user ke Home / app background — Google TV Launcher baru refresh
+     * baris preview setelah app tidak foreground (bukan cukup upsert saat masih nonton).
+     */
+    @UnstableApi
+    fun syncForLauncherRefresh(context: Context) {
+        if (!isSupported(context)) return
+        val appContext = context.applicationContext
+        scope.launch {
+            syncMutex.withLock {
+                runCatching {
+                    ensureChannelAndSyncPrograms(
+                        appContext,
+                        fullReplacePrograms = true,
+                        touchChannel = true,
+                    )
+                }.onFailure { Log.e(TAG, "syncForLauncherRefresh failed", it) }
+            }
+        }
+    }
+
+    /** Sama [syncForLauncherRefresh] tetapi blocking — dipanggil dari [Activity.onUserLeaveHint]. */
+    @UnstableApi
+    fun syncForLauncherRefreshBlocking(context: Context) {
+        if (!isSupported(context)) return
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                syncMutex.withLock {
+                    runCatching {
+                        ensureChannelAndSyncPrograms(
+                            context.applicationContext,
+                            fullReplacePrograms = true,
+                            touchChannel = true,
+                        )
+                    }.onFailure { Log.e(TAG, "syncForLauncherRefreshBlocking failed", it) }
                 }
             }
         }
@@ -74,8 +120,13 @@ object TvHomeRecommendations {
         if (!isSupported(context)) return
         runBlocking {
             syncMutex.withLock {
-                runCatching { ensureChannelAndSyncPrograms(context.applicationContext) }
-                    .onFailure { Log.e(TAG, "syncBlocking failed", it) }
+                runCatching {
+                    ensureChannelAndSyncPrograms(
+                        context.applicationContext,
+                        fullReplacePrograms = true,
+                        touchChannel = true,
+                    )
+                }.onFailure { Log.e(TAG, "syncBlocking failed", it) }
             }
         }
     }
@@ -196,9 +247,12 @@ object TvHomeRecommendations {
     }
 
     @UnstableApi
-    private fun ensureChannelAndSyncPrograms(context: Context) {
+    private fun ensureChannelAndSyncPrograms(
+        context: Context,
+        fullReplacePrograms: Boolean,
+        touchChannel: Boolean,
+    ) {
         ChannelRepository.loadChannels(context)
-        // Pakai memori dari addToRecentlyWatched; muat disk hanya jika memori masih kosong (cold start).
         if (ChannelRepository.getRecentlyWatched().isEmpty()) {
             ChannelRepository.loadRecentlyWatched(context)
         }
@@ -210,9 +264,46 @@ object TvHomeRecommendations {
 
         val channelId = getOrCreatePreviewChannelId(context)
         storeChannelLogo(context, channelId)
-        syncPreviewPrograms(context, channelId, recentlyWatched)
+        if (touchChannel) {
+            touchPreviewChannelForLauncher(context, channelId, recentlyWatched.size)
+        }
+        syncPreviewPrograms(
+            context,
+            channelId,
+            recentlyWatched,
+            fullReplace = fullReplacePrograms,
+        )
         notifyLauncherProgramsChanged(context, channelId)
-        Log.d(TAG, "Synced ${recentlyWatched.size} program(s) to TV home channel $channelId")
+        Log.d(
+            TAG,
+            "Synced ${recentlyWatched.size} program(s) to TV home channel $channelId " +
+                "(fullReplace=$fullReplacePrograms touchChannel=$touchChannel)",
+        )
+    }
+
+    /** Ubah metadata saluran supaya launcher mendeteksi perubahan baris. */
+    @UnstableApi
+    private fun touchPreviewChannelForLauncher(context: Context, tvChannelId: Long, recentCount: Int) {
+        try {
+            val appLinkIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            val desc = context.getString(R.string.tv_channel_recently_watched_desc) +
+                " · $recentCount · ${System.currentTimeMillis()}"
+            val builder = Channel.Builder()
+                .setType(TvContractCompat.Channels.TYPE_PREVIEW)
+                .setDisplayName(context.getString(R.string.tv_channel_recently_watched))
+                .setDescription(desc)
+                .setAppLinkIntentUri(appLinkIntent.toUri(Intent.URI_INTENT_SCHEME).toUri())
+            context.contentResolver.update(
+                TvContractCompat.buildChannelUri(tvChannelId),
+                builder.build().toContentValues(),
+                null,
+                null,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "touchPreviewChannelForLauncher failed", e)
+        }
     }
 
     /** Beri tahu launcher TV agar baris saluran di layar utama di-refresh segera. */
@@ -220,9 +311,13 @@ object TvHomeRecommendations {
         try {
             val channelUri = TvContractCompat.buildChannelUri(tvChannelId)
             val programsUri = TvContractCompat.buildPreviewProgramsUriForChannel(tvChannelId)
-            context.contentResolver.notifyChange(channelUri, null)
-            context.contentResolver.notifyChange(programsUri, null)
-            context.contentResolver.notifyChange(TvContractCompat.PreviewPrograms.CONTENT_URI, null)
+            val flags = ContentResolver.NOTIFY_INSERT or
+                ContentResolver.NOTIFY_UPDATE or
+                ContentResolver.NOTIFY_DELETE
+            context.contentResolver.notifyChange(channelUri, null, flags)
+            context.contentResolver.notifyChange(programsUri, null, flags)
+            context.contentResolver.notifyChange(TvContractCompat.PreviewPrograms.CONTENT_URI, null, flags)
+            context.contentResolver.notifyChange(TvContractCompat.Channels.CONTENT_URI, null, flags)
         } catch (e: Exception) {
             Log.w(TAG, "notifyChange failed", e)
         }
@@ -263,25 +358,66 @@ object TvHomeRecommendations {
         context: Context,
         tvChannelId: Long,
         channels: List<IptvChannel>,
+        fullReplace: Boolean,
     ) {
+        val cacheBust = System.currentTimeMillis()
         val existingByProviderId = loadExistingProgramIds(context, tvChannelId)
-        val desiredProviderIds = channels.map { internalProviderId(it.id) }.toSet()
 
-        // Hapus program yang tidak lagi ada di riwayat
-        for ((providerId, programId) in existingByProviderId) {
-            if (providerId !in desiredProviderIds) {
-                try {
-                    context.contentResolver.delete(
-                        TvContractCompat.buildPreviewProgramUri(programId),
-                        null,
-                        null,
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to delete stale program $providerId", e)
-                }
-            }
+        if (fullReplace) {
+            clearAllPreviewPrograms(context, tvChannelId, existingByProviderId)
+            insertPreviewPrograms(context, tvChannelId, channels, cacheBust, existingByProviderId = emptyMap())
+            return
         }
 
+        val desiredProviderIds = channels.map { internalProviderId(it.id) }.toSet()
+        for ((providerId, programId) in existingByProviderId) {
+            if (providerId !in desiredProviderIds) {
+                deletePreviewProgram(context, programId, providerId)
+            }
+        }
+        insertPreviewPrograms(context, tvChannelId, channels, cacheBust, existingByProviderId)
+    }
+
+    private fun clearAllPreviewPrograms(
+        context: Context,
+        tvChannelId: Long,
+        existingByProviderId: Map<String, Long>,
+    ) {
+        try {
+            context.contentResolver.delete(
+                TvContractCompat.buildPreviewProgramsUriForChannel(tvChannelId),
+                null,
+                null,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Bulk delete preview programs failed, deleting one-by-one", e)
+            for ((providerId, programId) in existingByProviderId) {
+                deletePreviewProgram(context, programId, providerId)
+            }
+        }
+    }
+
+    private fun deletePreviewProgram(context: Context, programId: Long, providerId: String) {
+        try {
+            context.contentResolver.delete(
+                TvContractCompat.buildPreviewProgramUri(programId),
+                null,
+                null,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to delete program $providerId", e)
+        }
+    }
+
+    @UnstableApi
+    @SuppressLint("RestrictedApi")
+    private fun insertPreviewPrograms(
+        context: Context,
+        tvChannelId: Long,
+        channels: List<IptvChannel>,
+        cacheBust: Long,
+        existingByProviderId: Map<String, Long>,
+    ) {
         val defaultPoster =
             "android.resource://${context.packageName}/${R.mipmap.ic_banner}".toUri()
 
@@ -291,9 +427,7 @@ object TvHomeRecommendations {
                 putExtra("CHANNEL_ID", ch.id)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
-            val posterUri = ch.logo.trim().takeIf { it.startsWith("http", ignoreCase = true) }
-                ?.toUri()
-                ?: defaultPoster
+            val posterUri = posterUriForLauncher(ch.logo, defaultPoster, cacheBust)
 
             val programBuilder = PreviewProgram.Builder()
                 .setChannelId(tvChannelId)
@@ -327,6 +461,15 @@ object TvHomeRecommendations {
                 Log.e(TAG, "Failed to upsert preview program for ${ch.name}", e)
             }
         }
+    }
+
+    /** Cache-bust poster agar launcher tidak pakai gambar lama. */
+    private fun posterUriForLauncher(logo: String, defaultPoster: android.net.Uri, cacheBust: Long): android.net.Uri {
+        val trimmed = logo.trim()
+        if (!trimmed.startsWith("http", ignoreCase = true)) return defaultPoster
+        return trimmed.toUri().buildUpon()
+            .appendQueryParameter("mqltv_v", cacheBust.toString())
+            .build()
     }
 
     private fun internalProviderId(channelId: Int) = "mqltv_ch_$channelId"

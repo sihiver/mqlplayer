@@ -303,10 +303,14 @@ class PlayerActivityVLC : ComponentActivity() {
         )
     }
 
+    override fun onUserLeaveHint() {
+        com.sihiver.mqltv.tv.TvHomeRecommendations.syncForLauncherRefreshBlocking(applicationContext)
+        super.onUserLeaveHint()
+    }
+
     override fun onResume() {
         super.onResume()
         applyPlaybackOrientation()
-        com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(this, activity = this)
         startExpiryWatcher()
         startIdleCloseWatcher()
     }
@@ -456,7 +460,6 @@ class PlayerActivityVLC : ComponentActivity() {
                     }
                 }
             }
-            com.sihiver.mqltv.tv.TvHomeRecommendations.syncAsync(this, activity = this)
         }
         
         val rootLayout = FrameLayout(this).apply {

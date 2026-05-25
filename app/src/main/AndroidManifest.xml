@@ -19,6 +19,7 @@
         android:required="false" />
 
     <application
+        android:name=".MqltvApplication"
         android:allowBackup="true"
         android:banner="@mipmap/ic_banner"
         android:icon="@mipmap/ic_launcher"
