@@ -547,7 +547,7 @@ object ChannelRepository {
                 it.source == channelSourceTag && streamUrlIdentity(it.url) == identity
             }
             // Channel dari M3U akun punya source __mql_account_playlist__ — merge DRM dari JSON
-            if (existingIndex < 0 && mergeIntoAccount && context != null) {
+            if (existingIndex < 0 && mergeIntoAccount) {
                 existingIndex = customChannels.indexOfFirst { ch ->
                     streamUrlIdentity(ch.url) == identity &&
                         belongsToAccountPlaylistImport(context, ch.source, accountPlaylistUrl)
@@ -577,6 +577,25 @@ object ChannelRepository {
                 addChannel(incomingCh)
                 changed++
             }
+        }
+
+        // Keep v216 JSON channels in exact server order.
+        val sourceMatcher: (Channel) -> Boolean = if (mergeIntoAccount) {
+            { ch -> belongsToAccountPlaylistImport(context, ch.source, accountPlaylistUrl) }
+        } else {
+            { ch -> ch.source == channelSourceTag }
+        }
+        val firstSourceIndex = customChannels.indexOfFirst(sourceMatcher)
+        if (firstSourceIndex >= 0) {
+            val sourceByIdentity = customChannels
+                .filter(sourceMatcher)
+                .associateBy { streamUrlIdentity(it.url) }
+            val orderedSource = incoming
+                .mapNotNull { sourceByIdentity[streamUrlIdentity(it.url)] }
+            val nonSource = customChannels.filterNot(sourceMatcher).toMutableList()
+            val insertIndex = firstSourceIndex.coerceAtMost(nonSource.size)
+            nonSource.addAll(insertIndex, orderedSource)
+            customChannels = nonSource
         }
 
         // Hapus duplikat lama dengan source URL JSON jika sudah di-merge ke account playlist
@@ -1052,6 +1071,26 @@ object ChannelRepository {
                 }
                 if (channelsToAdd.isNotEmpty()) {
                     customChannels.addAll(channelsToAdd)
+                }
+
+                // Keep channel order exactly as sent by server for this refreshed playlist source.
+                // Only reorder channels that belong to the refreshed source; other sources keep order.
+                val sourceMatcher: (Channel) -> Boolean = if (isAccountPlaylist) {
+                    { ch -> belongsToAccountPlaylistImport(context, ch.source, normalizedUrl) }
+                } else {
+                    { ch -> ch.source == normalizedUrl }
+                }
+                val firstSourceIndex = customChannels.indexOfFirst(sourceMatcher)
+                if (firstSourceIndex >= 0) {
+                    val sourceByUrl = customChannels
+                        .filter(sourceMatcher)
+                        .associateBy { it.url }
+                    val orderedSource = newChannels
+                        .mapNotNull { sourceByUrl[it.url] }
+                    val nonSource = customChannels.filterNot(sourceMatcher).toMutableList()
+                    val insertIndex = firstSourceIndex.coerceAtMost(nonSource.size)
+                    nonSource.addAll(insertIndex, orderedSource)
+                    customChannels = nonSource
                 }
 
                 val didChange = channelsToRemove.isNotEmpty() || channelsToAdd.isNotEmpty() || updatedCount > 0
