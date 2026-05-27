@@ -18,6 +18,7 @@ import java.util.Locale
 
 object ChannelRepository {
     
+    private val channelLock = Any()
     private var customChannels = mutableListOf<Channel>()
     private var sampleChannels = mutableListOf<Channel>()
     private var nextId = 100
@@ -522,97 +523,99 @@ object ChannelRepository {
         source: String,
         context: Context? = null,
     ): Int {
-        val normalizedSource = source.trim().ifBlank { "v216-json" }
-        val mergeIntoAccount = context != null && isAccountPlaylistJsonSource(context, normalizedSource)
-        val accountPlaylistUrl = context?.let { AuthRepository.getResolvedPlaylistUrl(it).trim() }.orEmpty()
+        synchronized(channelLock) {
+            val normalizedSource = source.trim().ifBlank { "v216-json" }
+            val mergeIntoAccount = context != null && isAccountPlaylistJsonSource(context, normalizedSource)
+            val accountPlaylistUrl = context?.let { AuthRepository.getResolvedPlaylistUrl(it).trim() }.orEmpty()
 
-        val channelSourceTag = if (mergeIntoAccount) SOURCE_ACCOUNT_PLAYLIST else normalizedSource
-        val incoming = parseV216JsonChannels(info, channelSourceTag)
-        if (incoming.isEmpty()) return 0
+            val channelSourceTag = if (mergeIntoAccount) SOURCE_ACCOUNT_PLAYLIST else normalizedSource
+            val incoming = parseV216JsonChannels(info, channelSourceTag)
+            if (incoming.isEmpty()) return 0
 
-        val incomingByIdentity = incoming.associateBy { streamUrlIdentity(it.url) }
-        var changed = 0
+            val incomingByIdentity = incoming.associateBy { streamUrlIdentity(it.url) }
+            var changed = 0
 
-        val beforeSize = customChannels.size
-        customChannels.removeAll { ch ->
-            ch.source == normalizedSource &&
-                !incomingByIdentity.containsKey(streamUrlIdentity(ch.url))
-        }
-        val removedCount = beforeSize - customChannels.size
-        if (removedCount > 0) changed += removedCount
-
-        for (incomingCh in incoming) {
-            val identity = streamUrlIdentity(incomingCh.url)
-            var existingIndex = customChannels.indexOfFirst {
-                it.source == channelSourceTag && streamUrlIdentity(it.url) == identity
-            }
-            // Channel dari M3U akun punya source __mql_account_playlist__ — merge DRM dari JSON
-            if (existingIndex < 0 && mergeIntoAccount) {
-                existingIndex = customChannels.indexOfFirst { ch ->
-                    streamUrlIdentity(ch.url) == identity &&
-                        belongsToAccountPlaylistImport(context, ch.source, accountPlaylistUrl)
-                }
-            }
-            if (existingIndex >= 0) {
-                val existing = customChannels[existingIndex]
-                val updated = existing.copy(
-                    url = incomingCh.url,
-                    name = incomingCh.name,
-                    category = incomingCh.category,
-                    logo = incomingCh.logo.ifBlank { existing.logo },
-                    drmLicenseUrl = incomingCh.drmLicenseUrl,
-                    source = if (mergeIntoAccount) SOURCE_ACCOUNT_PLAYLIST else existing.source,
-                )
-                if (updated != existing) {
-                    customChannels[existingIndex] = updated
-                    changed++
-                    if (incomingCh.drmLicenseUrl.isNotBlank()) {
-                        android.util.Log.d(
-                            "ChannelRepository",
-                            "DRM merged for '${existing.name}': ${incomingCh.drmLicenseUrl.take(60)}...",
-                        )
-                    }
-                }
-            } else {
-                addChannel(incomingCh)
-                changed++
-            }
-        }
-
-        // Keep v216 JSON channels in exact server order.
-        val sourceMatcher: (Channel) -> Boolean = if (mergeIntoAccount) {
-            { ch -> belongsToAccountPlaylistImport(context, ch.source, accountPlaylistUrl) }
-        } else {
-            { ch -> ch.source == channelSourceTag }
-        }
-        val firstSourceIndex = customChannels.indexOfFirst(sourceMatcher)
-        if (firstSourceIndex >= 0) {
-            val sourceByIdentity = customChannels
-                .filter(sourceMatcher)
-                .associateBy { streamUrlIdentity(it.url) }
-            val orderedSource = incoming
-                .mapNotNull { sourceByIdentity[streamUrlIdentity(it.url)] }
-            val nonSource = customChannels.filterNot(sourceMatcher).toMutableList()
-            val insertIndex = firstSourceIndex.coerceAtMost(nonSource.size)
-            nonSource.addAll(insertIndex, orderedSource)
-            customChannels = nonSource
-        }
-
-        // Hapus duplikat lama dengan source URL JSON jika sudah di-merge ke account playlist
-        if (mergeIntoAccount) {
-            val beforeDup = customChannels.size
+            val beforeSize = customChannels.size
             customChannels.removeAll { ch ->
                 ch.source == normalizedSource &&
-                    incomingByIdentity.containsKey(streamUrlIdentity(ch.url))
+                    !incomingByIdentity.containsKey(streamUrlIdentity(ch.url))
             }
-            changed += beforeDup - customChannels.size
-        }
+            val removedCount = beforeSize - customChannels.size
+            if (removedCount > 0) changed += removedCount
 
-        android.util.Log.d(
-            "ChannelRepository",
-            "v216 JSON sync: $changed change(s) (source=$normalizedSource, mergeAccount=$mergeIntoAccount, total=${incoming.size})",
-        )
-        return changed
+            for (incomingCh in incoming) {
+                val identity = streamUrlIdentity(incomingCh.url)
+                var existingIndex = customChannels.indexOfFirst {
+                    it.source == channelSourceTag && streamUrlIdentity(it.url) == identity
+                }
+                // Channel dari M3U akun punya source __mql_account_playlist__ — merge DRM dari JSON
+                if (existingIndex < 0 && mergeIntoAccount) {
+                    existingIndex = customChannels.indexOfFirst { ch ->
+                        streamUrlIdentity(ch.url) == identity &&
+                            belongsToAccountPlaylistImport(context, ch.source, accountPlaylistUrl)
+                    }
+                }
+                if (existingIndex >= 0) {
+                    val existing = customChannels[existingIndex]
+                    val updated = existing.copy(
+                        url = incomingCh.url,
+                        name = incomingCh.name,
+                        category = incomingCh.category,
+                        logo = incomingCh.logo.ifBlank { existing.logo },
+                        drmLicenseUrl = incomingCh.drmLicenseUrl,
+                        source = if (mergeIntoAccount) SOURCE_ACCOUNT_PLAYLIST else existing.source,
+                    )
+                    if (updated != existing) {
+                        customChannels[existingIndex] = updated
+                        changed++
+                        if (incomingCh.drmLicenseUrl.isNotBlank()) {
+                            android.util.Log.d(
+                                "ChannelRepository",
+                                "DRM merged for '${existing.name}': ${incomingCh.drmLicenseUrl.take(60)}...",
+                            )
+                        }
+                    }
+                } else {
+                    addChannel(incomingCh)
+                    changed++
+                }
+            }
+
+            // Keep v216 JSON channels in exact server order.
+            val sourceMatcher: (Channel) -> Boolean = if (mergeIntoAccount) {
+                { ch -> belongsToAccountPlaylistImport(context, ch.source, accountPlaylistUrl) }
+            } else {
+                { ch -> ch.source == channelSourceTag }
+            }
+            val firstSourceIndex = customChannels.indexOfFirst(sourceMatcher)
+            if (firstSourceIndex >= 0) {
+                val sourceByIdentity = customChannels
+                    .filter(sourceMatcher)
+                    .associateBy { streamUrlIdentity(it.url) }
+                val orderedSource = incoming
+                    .mapNotNull { sourceByIdentity[streamUrlIdentity(it.url)] }
+                val nonSource = customChannels.filterNot(sourceMatcher).toMutableList()
+                val insertIndex = firstSourceIndex.coerceAtMost(nonSource.size)
+                nonSource.addAll(insertIndex, orderedSource)
+                customChannels = nonSource
+            }
+
+            // Hapus duplikat lama dengan source URL JSON jika sudah di-merge ke account playlist
+            if (mergeIntoAccount) {
+                val beforeDup = customChannels.size
+                customChannels.removeAll { ch ->
+                    ch.source == normalizedSource &&
+                        incomingByIdentity.containsKey(streamUrlIdentity(ch.url))
+                }
+                changed += beforeDup - customChannels.size
+            }
+
+            android.util.Log.d(
+                "ChannelRepository",
+                "v216 JSON sync: $changed change(s) (source=$normalizedSource, mergeAccount=$mergeIntoAccount, total=${incoming.size})",
+            )
+            return changed
+        }
     }
 
     private fun isAccountPlaylistJsonSource(context: Context, jsonSource: String): Boolean {

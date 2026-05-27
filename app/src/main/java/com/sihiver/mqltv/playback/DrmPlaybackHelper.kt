@@ -163,7 +163,11 @@ object DrmPlaybackHelper {
                 createClearKeyFromHex(drmPart.removePrefix(PREFIX_CLEARKEY_HEX).trim())
             }
             drmPart.startsWith(PREFIX_CLEARKEY, ignoreCase = true) -> {
-                createClearKeyFromPayload(drmPart.removePrefix(PREFIX_CLEARKEY).trim())
+                val payload = drmPart.removePrefix(PREFIX_CLEARKEY).trim()
+                when {
+                    looksLikeClearKeyHexPair(payload) -> createClearKeyFromHex(payload)
+                    else -> createClearKeyFromPayload(payload)
+                }
             }
             isStaleVerspectiveWidevine(drmPart) -> {
                 android.util.Log.e(
@@ -243,6 +247,9 @@ object DrmPlaybackHelper {
      */
     private fun resolveV216ClearKeyDrmPart(item: JSONObject): String {
         val urlLicense = item.optString("url_license", "").trim()
+        if (looksLikeClearKeyHexPair(urlLicense)) {
+            return "$PREFIX_CLEARKEY_HEX$urlLicense"
+        }
         if (looksLikeClearKeyPayload(urlLicense)) {
             return "$PREFIX_CLEARKEY$urlLicense"
         }
@@ -291,10 +298,22 @@ object DrmPlaybackHelper {
             return false
         }
         if (v.startsWith("{")) return true
-        if (v.contains(":") && v.length in 32..80 && v.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' }) {
+        if (looksLikeClearKeyHexPair(v)) {
             return true
         }
         return v.startsWith("eyJ") // base64 JSON
+    }
+
+    private fun looksLikeClearKeyHexPair(value: String): Boolean {
+        val v = value.trim()
+        if (!v.contains(":")) return false
+        val parts = v.split(":", limit = 2)
+        if (parts.size != 2) return false
+        val kid = parts[0].trim()
+        val key = parts[1].trim()
+        if (kid.length != 32 || key.length != 32) return false
+        return kid.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' } &&
+            key.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
     }
 
     private fun parseV216StreamHeaders(headerIptvRaw: String): Map<String, String> {
@@ -370,6 +389,9 @@ object DrmPlaybackHelper {
     }
 
     private fun createClearKeyFromPayload(payload: String): DrmSessionManager? {
+        if (looksLikeClearKeyHexPair(payload)) {
+            return createClearKeyFromHex(payload)
+        }
         val licenseBytes = when {
             payload.startsWith("{") -> payload.toByteArray(Charsets.UTF_8)
             else -> {
@@ -385,8 +407,14 @@ object DrmPlaybackHelper {
 
     private fun hexPairToClearKeyJson(kidHex: String, keyHex: String): String? {
         return try {
-            val kidB64 = Base64.encodeToString(hexToBytes(kidHex), Base64.NO_WRAP)
-            val kB64 = Base64.encodeToString(hexToBytes(keyHex), Base64.NO_WRAP)
+            val kidB64 = Base64.encodeToString(
+                hexToBytes(kidHex),
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+            )
+            val kB64 = Base64.encodeToString(
+                hexToBytes(keyHex),
+                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+            )
             """{"keys":[{"kty":"oct","k":"$kB64","kid":"$kidB64"}]}"""
         } catch (_: Exception) {
             null
@@ -446,6 +474,13 @@ object DrmPlaybackHelper {
         return try {
             val parts = licenseUrl.split("|")
             val actualLicenseUrl = parts[0].trim()
+            if (actualLicenseUrl.isBlank()) {
+                android.util.Log.w(
+                    "DrmPlaybackHelper",
+                    "Skip Widevine init because license URL is blank",
+                )
+                return null
+            }
             val customHeaders = mutableMapOf<String, String>()
             if (parts.size > 1) {
                 parts.drop(1).forEach { header ->
